@@ -118,6 +118,10 @@ The product is built on Python and open source frameworks and provides a web-bas
 
 ### 4.1 Component Diagram
 
+Below is the architecture diagram represented using Mermaid:
+
+
+```mermaid
 flowchart TD
     A[Web UI / API Layer]
     B[Backend Orchestration Layer]
@@ -151,8 +155,7 @@ flowchart TD
 
     %% Connections
     UI --> BE
-    BE --> DEP
-
+    BE --> DEP ```	
 
 ### 4.2 Data Flow
 
