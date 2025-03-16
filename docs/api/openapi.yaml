@@ -1,0 +1,146 @@
+openapi: 3.0.0
+info:
+  title: Hyperion RAG API
+  version: 2.1.0
+  description: |
+    # API Overview
+    Machine-learning API for document processing and contextual generation.
+    Core capabilities:
+    - Secure document ingestion and management
+    - Vector-based semantic search
+    - LLM-powered generation with RAG
+    
+    **Deprecation Notice:** v1.x endpoints will be sunset on 2026-01-01. Migrate to v2.x using the `X-API-Version: 2.1` header.
+
+servers:
+  - url: https://api.hyperion.ai/v2
+    description: Production cluster
+  - url: https://staging.hyperion.ai/v2
+    description: Staging environment
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/token:
+    post:
+      summary: Get JWT token
+      description: Authenticate with API credentials
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        200:
+          description: Authentication successful
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer, example: 100}
+            X-RateLimit-Remaining:
+              schema: {type: integer, example: 99}
+          content:
+            application/json:
+              schema: 
+                $ref: '#/components/schemas/AuthResponse'
+
+  /vectors/{collection}:
+    parameters:
+      - $ref: '#/components/parameters/CollectionName'
+    get:
+      summary: Search vector store
+      operationId: searchVectors
+      security:
+        - bearerAuth: ["search:read"]
+      parameters:
+        - $ref: '#/components/parameters/QueryText'
+        - $ref: '#/components/parameters/TopK'
+      responses:
+        200:
+          description: Vector search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VectorSearchResult'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Include header: `Authorization: Bearer <JWT_TOKEN>`
+        Example: `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
+
+  schemas:
+    AuthRequest:
+      type: object
+      required: [client_id, client_secret]
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        client_secret:
+          type: string
+          example: "hunter2"
+
+    VectorSearchResult:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/VectorMatch'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    VectorMatch:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        score: {type: number, format: float}
+        metadata: {type: object}
+
+  parameters:
+    CollectionName:
+      name: collection
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [documents, images, multi-modal]
+    
+    QueryText:
+      name: q
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 3
+        example: "machine learning applications"
+
+    TopK:
+      name: top_k
+      in: query
+      schema: 
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
+
+  responses:
+    RateLimitExceeded:
+      description: Request quota exceeded
+      headers:
+        X-RateLimit-Limit: {schema: {type: integer}}
+        X-RateLimit-Remaining: {schema: {type: integer}}
+        X-RateLimit-Reset: {schema: {type: integer}}
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "rate_limit_exceeded"
+            message: "API rate limit exceeded - try again in 45 seconds"
