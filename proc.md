@@ -123,40 +123,36 @@ Below is the architecture diagram represented using Mermaid:
 
 ```mermaid
 flowchart TD
-    A[Web UI / API Layer]
-    B[Backend Orchestration Layer]
-    C[Container & Deployment Layer]
+    A["Web UI / API Layer"]
+    B["Backend Orchestration Layer"]
+    C["Container & Deployment Layer"]
 
-    %% Define subcomponents for Web UI / API Layer
     subgraph UI [Web UI / API Layer]
-      A1[User Management]
-      A2[RAG Model Configuration (prompt templates, etc.)]
-      A3[Query Interface]
+      A1["User Management"]
+      A2["RAG Model Config"]
+      A3["Query Interface"]
     end
 
-    %% Define subcomponents for Backend Orchestration Layer
     subgraph BE [Backend Orchestration Layer]
-      BE1[Data Ingestion & Preprocessing Module]
-      BE1a[• File Upload, PDF Parsing (PyMuPDF/pdfplumber)]
-      BE1b[• Text Cleaning & Chunking]
-      BE2[Embedding Generator Module<br>(Sentence Transformers / Hugging Face)]
-      BE3[Vector Store Interface<br>(FAISS / Milvus)]
-      BE4[Query Processing & Retrieval Module<br>(Semantic Search)]
-      BE5[Prompt Construction Module<br>(Customizable Templates)]
-      BE6[Generation Module<br>(LLM Integration via connectors<br>(ollama, lmstudio, OpenRouter))]
+      BE1["Data Ingestion & Preprocessing"]
+      BE1a["- File Upload, PDF Parsing (PyMuPDF or pdfplumber)"]
+      BE1b["- Text Cleaning and Chunking"]
+      BE2["Embedding Generation\n(Sentence Transformers)"]
+      BE3["Vector Store Interface\n(FAISS or Milvus)"]
+      BE4["Query Processing & Retrieval\n(Semantic Search)"]
+      BE5["Prompt Construction\n(Custom Templates)"]
+      BE6["Generation Module\n(LLM Integration via ollama, lmstudio, OpenRouter)"]
     end
 
-    %% Define subcomponents for Container & Deployment Layer
     subgraph DEP [Container & Deployment Layer]
-      C1[Docker Containers for each microservice]
-      C2[Docker Compose for local development]
-      C3[Kubernetes/Helm for production orchestration]
+      C1["Docker Containers"]
+      C2["Docker Compose (Local Dev)"]
+      C3["Kubernetes/Helm (Prod)"]
     end
 
-    %% Connections
     UI --> BE
-    BE --> DEP ```	
-
+    BE --> DEP
+```
 ### 4.2 Data Flow
 
 1. **Document Upload:**  

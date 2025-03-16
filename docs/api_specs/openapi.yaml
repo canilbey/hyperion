@@ -1,0 +1,77 @@
+openapi: 3.0.3
+info:
+  title: Hyperion RAG API
+  version: 1.0.0
+  description: API for document processing and querying
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+
+paths:
+  /api/upload:
+    post:
+      summary: Upload documents
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+
+  /api/query:
+    post:
+      summary: Submit RAG query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+      responses:
+        '200':
+          description: Query response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+
+components:
+  schemas:
+    UploadResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        file_id:
+          type: string
+
+    QueryRequest:
+      type: object
+      properties:
+        query:
+          type: string
+        config_id:
+          type: string
+          nullable: true
+
+    QueryResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+        metadata:
+          type: object
+          properties:
+            tokens_used:
+              type: integer
