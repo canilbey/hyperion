@@ -147,6 +147,7 @@ This project is licensed under the MIT License.
 - **Draw.io**: For creating standalone diagrams.  
 
 ### 3. **Example**
+```mermaid
 flowchart TD
     A[Frontend] --> B[Backend]
     B --> C[PostgreSQL]
@@ -157,6 +158,7 @@ flowchart TD
     F --> H[LLM Endpoints]
     G --> I[Prometheus]
     I --> J[Grafana]
+```
 
 ---
 
