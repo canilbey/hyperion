@@ -107,7 +107,7 @@ Hyperion is a fully customizable, open-source RAG (Retrieval-Augmented Generatio
 ## Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/hyperion.git
+   git clone https://github.com/canilbey/hyperion.git
    ```
 2. Install dependencies:
    ```bash
