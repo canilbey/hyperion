@@ -3,31 +3,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from databases import Database
 import os
 import redis.asyncio as redis
-from pydantic_settings import BaseSettings
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 import uuid
 import logging
 from services.chat_service import ChatService
-from config.models import ModelConfig
+from services.model_service import ModelService
+from config.models import ModelProvider
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class Settings(BaseSettings):
-    database_url: str = os.getenv("DATABASE_URL", "postgresql://user:pass@db:5431/db")
-    redis_url: str = os.getenv("REDIS_URL", "redis://redis:6379")
-    upload_dir: str = os.getenv("UPLOAD_DIR", "/uploads")
-    default_model_config: ModelConfig = {}
-
-settings = Settings()
 app = FastAPI()
-database = Database(settings.database_url)
-redis_pool = redis.from_url(settings.redis_url)
+database = Database(os.getenv("DATABASE_URL", "postgresql://user:pass@db:5432/db"))
+redis_pool = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379"))
+upload_dir = os.getenv("UPLOAD_DIR", "/uploads")
+
+# Initialize services
+model_service = ModelService(database)
+chat_service = ChatService(model_service)
 
 # Create upload directory if not exists
-os.makedirs(settings.upload_dir, exist_ok=True)
+os.makedirs(upload_dir, exist_ok=True)
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,9 +40,18 @@ class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
 
+class ModelConfigRequest(BaseModel):
+    model_id: Optional[str] = None
+    provider: Optional[ModelProvider] = None
+    model_name: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    knowledge_table: Optional[str] = None
+    temperature: Optional[float] = None
+
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(..., min_items=1)
-    custom_config: Optional[ModelConfig] = None
+    custom_config: Optional[ModelConfigRequest] = None
     stream: bool = False
 
 class ChatResponse(BaseModel):
@@ -63,11 +70,38 @@ class FileUploadResponse(BaseModel):
     content_type: str
     size: int
 
+class ModelCreateRequest(BaseModel):
+    provider: ModelProvider = ModelProvider.OPENROUTER
+    model_name: str = "deepseek/deepseek-chat-v3-0324:free"
+    system_prompt: str = "You are a helpful assistant."
+    api_key: Optional[str] = None
+    knowledge_table_name: Optional[str] = None
+    knowledge_table_id: Optional[str] = None
+
+class ModelCreateResponse(BaseModel):
+    status: str
+    model_name: str
+    model_id: str
+
 # Endpoints
 @app.on_event("startup")
 async def startup():
     await database.connect()
     await redis_pool.ping()
+    
+    # Create models table if not exists
+    await database.execute("""
+        CREATE TABLE IF NOT EXISTS models (
+            model_id UUID PRIMARY KEY,
+            provider VARCHAR(20) NOT NULL,
+            model_name VARCHAR(100) NOT NULL,
+            system_prompt TEXT,
+            api_key TEXT,
+            knowledge_table_name VARCHAR(100),
+            knowledge_table_id VARCHAR(100),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     logger.info("Service startup completed")
 
 @app.on_event("shutdown")
@@ -88,7 +122,7 @@ async def health_check():
 async def upload_file(file: UploadFile = File(...)):
     try:
         file_id = str(uuid.uuid4())
-        file_path = os.path.join(settings.upload_dir, file_id)
+        file_path = os.path.join(upload_dir, file_id)
         
         contents = await file.read()
         with open(file_path, "wb") as f:
@@ -106,11 +140,17 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    chat_service = ChatService(request.custom_config or settings.default_model_config)
-    return await chat_service.process_chat_request(
-        messages=[m.dict() for m in request.messages],
-        stream=request.stream
-    )
+    try:
+        custom_config = request.custom_config.dict() if request.custom_config else None
+        return await chat_service.process_chat_request(
+            messages=[m.dict() for m in request.messages],
+            model_id=request.custom_config.model_id if request.custom_config else None,
+            custom_config=custom_config,
+            stream=request.stream
+        )
+    except Exception as e:
+        logger.error(f"Chat processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/search")
 async def vector_search(request: SearchRequest):
@@ -120,6 +160,17 @@ async def vector_search(request: SearchRequest):
             {"id": str(uuid.uuid4()), "score": 0.92, "text": "Sample result 2"}
         ][:request.top_k]
     }
+
+@app.post("/model/create", response_model=ModelCreateResponse)
+async def create_model(request: ModelCreateRequest):
+    return await model_service.create_model(
+        provider=request.provider,
+        model_name=request.model_name,
+        system_prompt=request.system_prompt,
+        api_key=request.api_key,
+        knowledge_table_name=request.knowledge_table_name,
+        knowledge_table_id=request.knowledge_table_id
+    )
 
 if __name__ == "__main__":
     import uvicorn

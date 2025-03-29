@@ -6,50 +6,46 @@
 ## Authentication
 No authentication required for these endpoints
 
-## Endpoints
+## Models Endpoint
 
-### Health Check
+### Create Model
 ```
-GET /health
+POST /model/create
 ```
-Check service status and database connections
+Create and store a new model configuration
 
-**Response:**
+**Request Body:**
 ```json
 {
-  "status": "ok",
-  "database": "connected|disconnected",
-  "redis": "connected|disconnected"
+  "provider": "openrouter|ollama|lm_studio",
+  "model_name": "model-id",
+  "system_prompt": "optional system instructions", 
+  "api_key": "provider-api-key",
+  "knowledge_table_name": "optional-rag-context",
+  "knowledge_table_id": "optional-rag-id"
 }
 ```
 
-### File Upload
-```
-POST /upload
-```
-Upload files to the server
-
-**Form Data:**
-- `file`: File to upload (required)
-
 **Response:**
 ```json
 {
-  "file_id": "uuid-string",
-  "filename": "original-name.txt",
-  "content_type": "text/plain",
-  "size": 1024
+  "status": "model created",
+  "model_name": "model-id",
+  "model_id": "uuid-string"
 }
 ```
 
 **Errors:**
-- 500: File upload failed
+- 400: Invalid request format
+- 500: Model creation failed
 
-### Chat API
+## Chat Endpoint
+
+### Process Chat
 ```
 POST /chat
 ```
-Process chat messages with optional RAG context
+Process chat messages using specified model
 
 **Request Body:**
 ```json
@@ -60,11 +56,8 @@ Process chat messages with optional RAG context
       "content": "message text"
     }
   ],
-  "model_config": {
-    "provider": "OPENROUTER|OLLAMA|LM_STUDIO",
-    "model": "model-name",
-    "temperature": 0.7,
-    "knowledge_table": "optional-rag-context"
+  "custom_config": {
+    "model_id": "uuid-of-model"
   },
   "stream": false
 }
@@ -88,13 +81,50 @@ Process chat messages with optional RAG context
 
 **Errors:**
 - 400: Invalid request format
+- 404: Model not found
 - 500: Chat processing failed
 
-### Vector Search
+## Other Endpoints
+
+### Health Check
+```
+GET /health
+```
+Check service status
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "database": "connected|disconnected",
+  "redis": "connected|disconnected"  
+}
+```
+
+### File Upload
+```
+POST /upload
+```
+Upload files to server
+
+**Form Data:**
+- `file`: File to upload
+
+**Response:**
+```json
+{
+  "file_id": "uuid-string",
+  "filename": "original-name.txt",
+  "content_type": "text/plain",
+  "size": 1024
+}
+```
+
+### Vector Search (Placeholder)
 ```
 POST /search
 ```
-Semantic search (Milvus placeholder)
+Semantic search endpoint
 
 **Request Body:**
 ```json
@@ -119,58 +149,27 @@ Semantic search (Milvus placeholder)
 
 ## Usage Examples
 
-### Using cURL
-
-1. Start services:
+### Create Model
 ```bash
-docker-compose up -d --build backend
+curl -X POST http://localhost:8000/model/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "openrouter",
+    "model_name": "anthropic/claude-3-opus",
+    "api_key": "your_api_key"
+  }'
 ```
 
-2. Test health check:
-```bash
-curl http://localhost:8000/health
-```
-
-3. Upload a file:
-```bash
-curl -X POST http://localhost:8000/upload -F "file=@README.md"
-```
-
-4. Chat example:
+### Chat Request
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role": "user", "content": "Hello"}],
-    "stream": false
-  }'
-```
-
-### Using Python
-
-```python
-import requests
-
-# Health check
-response = requests.get("http://localhost:8000/health")
-print(response.json())
-
-# File upload
-with open("test.txt", "rb") as f:
-    files = {"file": f}
-    response = requests.post("http://localhost:8000/upload", files=files)
-    print(response.json())
-
-# Chat request
-chat_data = {
-    "messages": [{"role": "user", "content": "Hello"}],
-    "model_config": {
-        "provider": "OPENROUTER",
-        "model": "gpt-3.5-turbo"
+    "custom_config": {
+      "model_id": "your-model-uuid"  
     }
-}
-response = requests.post("http://localhost:8000/chat", json=chat_data)
-print(response.json())
+  }'
 ```
 
 ## Rate Limits
