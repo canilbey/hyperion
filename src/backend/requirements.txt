@@ -8,3 +8,9 @@ python-jose[cryptography]
 uuid
 databases
 pydantic-settings
+openai
+tenacity
+pytest
+pytest-asyncio
+httpx
+mock

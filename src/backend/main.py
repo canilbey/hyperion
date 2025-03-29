@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 import uuid
 import logging
-from src.backend.services.chat_service import ChatService
-from src.backend.config.models import ModelConfig
+from services.chat_service import ChatService
+from config.models import ModelConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     database_url: str = os.getenv("DATABASE_URL", "postgresql://user:pass@db:5431/db")
     redis_url: str = os.getenv("REDIS_URL", "redis://redis:6379")
     upload_dir: str = os.getenv("UPLOAD_DIR", "/uploads")
-    default_model_config: ModelConfig = ModelConfig()
+    default_model_config: ModelConfig = {}
 
 settings = Settings()
 app = FastAPI()
@@ -44,7 +44,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(..., min_items=1)
-    model_config: Optional[ModelConfig] = None
+    custom_config: Optional[ModelConfig] = None
     stream: bool = False
 
 class ChatResponse(BaseModel):
@@ -106,7 +106,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    chat_service = ChatService(request.model_config or settings.default_model_config)
+    chat_service = ChatService(request.custom_config or settings.default_model_config)
     return await chat_service.process_chat_request(
         messages=[m.dict() for m in request.messages],
         stream=request.stream

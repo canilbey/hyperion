@@ -1,1 +1,5 @@
 .clinerules-code
+.pytest_cache/
+__pycache__/
+test_upload.txt
+.gitignore

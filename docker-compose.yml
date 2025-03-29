@@ -1,58 +1,41 @@
-services:
-  frontend:
-    build:
-      context: ./src/frontend
-      dockerfile: ../Dockerfile.frontend
-    ports:
-      - "3001:80"
-    depends_on:
-      - backend
+version: '3.8'
 
+services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
     ports:
       - "8000:8000"
+    volumes:
+      - uploads:/app/uploads
     environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/db
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgresql://user:pass@postgres/hyperion
+      - UPLOAD_DIR=/app/uploads
     depends_on:
+      - db
       - redis
-      - postgres
+
+  db:
+    image: postgres:17
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   redis:
-    image: redis:alpine
+    image: redis:6
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  postgres:
-    image: postgres:alpine
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: hyperion
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5431:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d hyperion"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-    depends_on:
-      redis:
-        condition: service_healthy
 
 volumes:
-  redis_data:
+  uploads:
   postgres_data:
+  redis_data:

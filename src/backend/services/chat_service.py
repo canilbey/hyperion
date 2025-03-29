@@ -3,7 +3,7 @@ import logging
 from typing import Dict, Any, Optional
 from openai import AsyncOpenAI, APIError
 from tenacity import retry, stop_after_attempt, wait_exponential
-from src.backend.config.models import ModelConfig, ModelProvider
+from config.models import ModelConfig, ModelProvider
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
