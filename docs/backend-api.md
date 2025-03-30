@@ -18,7 +18,8 @@ Create and store a new model configuration
 ```json
 {
   "provider": "openrouter|ollama|lm_studio",
-  "model_name": "model-id",
+  "model": "provider-model-id",
+  "model_name": "unique-display-name",
   "system_prompt": "optional system instructions", 
   "api_key": "provider-api-key",
   "knowledge_table_name": "optional-rag-context",
@@ -36,7 +37,7 @@ Create and store a new model configuration
 ```
 
 **Errors:**
-- 400: Invalid request format
+- 400: Invalid request format or duplicate model name
 - 500: Model creation failed
 
 ## Chat Endpoint

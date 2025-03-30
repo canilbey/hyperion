@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from databases import Database
 import os
 import redis.asyncio as redis
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Literal
 import uuid
 import logging
@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-database = Database(os.getenv("DATABASE_URL", "postgresql://user:pass@db:5432/db"))
+database = Database(os.getenv("DATABASE_URL", "postgresql://user:pass@db:5431/db"))
 redis_pool = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379"))
 upload_dir = os.getenv("UPLOAD_DIR", "/uploads")
 
@@ -41,13 +41,25 @@ class ChatMessage(BaseModel):
     content: str
 
 class ModelConfigRequest(BaseModel):
-    model_id: Optional[str] = None
+    model_id: Optional[str] = Field(
+        default=None,
+        description="Either model_id or model_name must be provided"
+    )
+    model_name: Optional[str] = Field(
+        default=None,
+        description="Either model_id or model_name must be provided"
+    )
     provider: Optional[ModelProvider] = None
-    model_name: Optional[str] = None
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     knowledge_table: Optional[str] = None
     temperature: Optional[float] = None
+
+    @field_validator('model_id', 'model_name', mode='before')
+    def check_at_least_one_identifier(cls, v, info):
+        if not v and not info.data.get('model_name' if info.field_name == 'model_id' else 'model_id'):
+            raise ValueError("Either model_id or model_name must be provided")
+        return v
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(..., min_items=1)
@@ -72,7 +84,8 @@ class FileUploadResponse(BaseModel):
 
 class ModelCreateRequest(BaseModel):
     provider: ModelProvider = ModelProvider.OPENROUTER
-    model_name: str = "deepseek/deepseek-chat-v3-0324:free"
+    model: str = "deepseek/deepseek-chat-v3-0324:free"
+    model_name: str = "Deepseek Chat v3"
     system_prompt: str = "You are a helpful assistant."
     api_key: Optional[str] = None
     knowledge_table_name: Optional[str] = None
@@ -95,6 +108,7 @@ async def startup():
             model_id UUID PRIMARY KEY,
             provider VARCHAR(20) NOT NULL,
             model_name VARCHAR(100) NOT NULL,
+            model VARCHAR(100) NOT NULL,
             system_prompt TEXT,
             api_key TEXT,
             knowledge_table_name VARCHAR(100),
@@ -141,11 +155,20 @@ async def upload_file(file: UploadFile = File(...)):
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     try:
-        custom_config = request.custom_config.dict() if request.custom_config else None
+        if not request.custom_config:
+            raise HTTPException(
+                status_code=400,
+                detail="Custom config with model_id or model_name is required"
+            )
+
+        model_config = await model_service.get_model_config(
+            model_id=request.custom_config.model_id,
+            model_name=request.custom_config.model_name
+        )
+        
         return await chat_service.process_chat_request(
             messages=[m.dict() for m in request.messages],
-            model_id=request.custom_config.model_id if request.custom_config else None,
-            custom_config=custom_config,
+            model_config=model_config,
             stream=request.stream
         )
     except Exception as e:
@@ -165,6 +188,7 @@ async def vector_search(request: SearchRequest):
 async def create_model(request: ModelCreateRequest):
     return await model_service.create_model(
         provider=request.provider,
+        model=request.model,
         model_name=request.model_name,
         system_prompt=request.system_prompt,
         api_key=request.api_key,
