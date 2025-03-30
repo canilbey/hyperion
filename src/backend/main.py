@@ -12,8 +12,15 @@ from services.model_service import ModelService
 from config.models import ModelProvider
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+# Enable debug logging for our services
+for name in ['services', 'main']:
+    logging.getLogger(name).setLevel(logging.DEBUG)
 
 app = FastAPI()
 database = Database(os.getenv("DATABASE_URL", "postgresql://user:pass@db:5431/db"))
@@ -155,6 +162,15 @@ async def upload_file(file: UploadFile = File(...)):
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     try:
+        logger.info("Chat request received", extra={
+            "event": "chat_request_received",
+            "request": {
+                "messages": [m.dict() for m in request.messages],
+                "custom_config": request.custom_config.dict() if request.custom_config else None,
+                "stream": request.stream
+            }
+        })
+
         if not request.custom_config:
             raise HTTPException(
                 status_code=400,
@@ -166,13 +182,27 @@ async def chat_endpoint(request: ChatRequest):
             model_name=request.custom_config.model_name
         )
         
-        return await chat_service.process_chat_request(
+        response = await chat_service.process_chat_request(
             messages=[m.dict() for m in request.messages],
             model_config=model_config,
             stream=request.stream
         )
+
+        logger.info("Chat request completed", extra={
+            "event": "chat_request_completed",
+            "response": response
+        })
+        
+        return response
     except Exception as e:
-        logger.error(f"Chat processing failed: {str(e)}")
+        logger.error(f"Chat processing failed: {str(e)}", exc_info=True, extra={
+            "event": "chat_request_failed",
+            "error": str(e),
+            "request": {
+                "messages": [m.dict() for m in request.messages],
+                "custom_config": request.custom_config.dict() if request.custom_config else None
+            }
+        })
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/search")

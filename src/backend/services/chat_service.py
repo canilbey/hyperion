@@ -29,7 +29,23 @@ class ChatService:
             "temperature": model_config.temperature
         }
         
-        logger.info(f"Sending request to OpenRouter with data: {data}")
+        logger.info("Sending request to OpenRouter", extra={
+            "event": "openrouter_request",
+            "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+            "headers": {k: "****" if k == "Authorization" else v for k, v in headers.items()},
+            "payload": {
+                "model": data["model"],
+                "messages": [{"role": m["role"], "content_length": len(m["content"])} for m in data["messages"]],
+                "message_count": len(data["messages"]),
+                "temperature": data["temperature"]
+            },
+            "model_config": {
+                "provider": model_config.provider.value,
+                "model": model_config.model,
+                "has_api_key": bool(model_config.api_key),
+                "temperature": model_config.temperature
+            }
+        })
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -42,41 +58,91 @@ class ChatService:
                     logger.info(f"OpenRouter response: {response.status} - {response_text}")
                     
                     if response.status == 200:
-                        return await response.json()
+                        response_data = await response.json()
+                        logger.info("OpenRouter response received", extra={
+                            "event": "openrouter_response",
+                            "status": response.status,
+                            "usage": response_data.get("usage", {}),
+                            "response": {
+                                "content_length": len(response_data["choices"][0]["message"]["content"]),
+                                "finish_reason": response_data["choices"][0].get("finish_reason")
+                            }
+                        })
+                        return response_data
                     else:
                         error_msg = f"OpenRouter API error: {response.status} - {response_text}"
-                        logger.error(error_msg)
+                        logger.error(error_msg, extra={
+                            "event": "openrouter_error",
+                            "status": response.status,
+                            "response_text": response_text,
+                            "request": {
+                                "model": data["model"],
+                                "message_count": len(data["messages"]),
+                                "temperature": data["temperature"]
+                            }
+                        })
                         raise HTTPException(
                             status_code=response.status,
                             detail=error_msg
                         )
+        except AttributeError as ae:
+            error_msg = f"AttributeError in OpenRouter call: {str(ae)}"
+            logger.error(error_msg, exc_info=True, extra={
+                "event": "openrouter_error",
+                "error_type": "AttributeError",
+                "model_config": {
+                    "provider": model_config.provider.value,
+                    "model": model_config.model,
+                    "has_api_key": bool(model_config.api_key)
+                }
+            })
+            raise HTTPException(
+                status_code=500,
+                detail=error_msg
+            )
         except Exception as e:
-            error_msg = f"Network error contacting OpenRouter: {str(e)}"
-            logger.error(error_msg)
+            error_msg = f"Error contacting OpenRouter: {str(e)}"
+            logger.error(error_msg, exc_info=True, extra={
+                "event": "openrouter_error",
+                "error_type": type(e).__name__,
+                "model_config": {
+                    "provider": model_config.provider.value,
+                    "model": model_config.model
+                }
+            })
             raise HTTPException(
                 status_code=500,
                 detail=error_msg
             )
 
     async def get_rag_context(self, query: str) -> Optional[str]:
-        if not self.config.get('knowledge_table'):
-            return None
-        return f"Context from {self.config['knowledge_table']} for: {query}"
+        return None  # RAG functionality not currently implemented
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def process_chat_request(self, messages: list, model_config: ModelConfig, stream: bool = False):
         try:
+            logger.info("Processing chat request with config: %s", {
+                'provider': model_config.provider.value,
+                'model': model_config.model,
+                'has_api_key': bool(model_config.api_key),
+                'temperature': model_config.temperature
+            })
+            
             # Verify model configuration
             if not model_config.api_key:
+                error_msg = "API key is required for OpenRouter"
+                logger.error(error_msg)
                 raise HTTPException(
                     status_code=400,
-                    detail="API key is required for OpenRouter"
+                    detail=error_msg
                 )
                 
             if not model_config.model:
+                error_msg = "Model name is required"
+                logger.error(error_msg)
                 raise HTTPException(
                     status_code=400,
-                    detail="Model name is required"
+                    detail=error_msg
                 )
 
             # Get RAG context if configured
@@ -115,8 +181,8 @@ class ChatService:
                     "role": "assistant",
                     "content": response["choices"][0]["message"]["content"]
                 },
-                "model_used": self.config.get("model"),
-                "provider": self.config.get("provider"),
+                "model_used": model_config.model,
+                "provider": model_config.provider.value,
                 "usage": response.get("usage")
             }
             
