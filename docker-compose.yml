@@ -9,6 +9,7 @@ services:
       - "8000:8000"
     volumes:
       - uploads:/app/uploads
+      - ./tests:/app/tests
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379

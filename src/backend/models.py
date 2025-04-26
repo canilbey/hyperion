@@ -38,6 +38,10 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage] = Field(..., min_items=1)
     custom_config: Optional[ModelConfigRequest] = None
     stream: bool = False
+    chat_name: Optional[str] = Field(
+        default=None,
+        description="Optional name/identifier for the chat session"
+    )
 
     @field_validator('custom_config', mode='before')
     def validate_custom_config(cls, v):
@@ -54,6 +58,10 @@ class ChatResponse(BaseModel):
     model_used: str
     provider: str
     usage: Optional[dict] = None
+    chat_id: Optional[str] = Field(
+        default=None,
+        description="ID of the chat session, if persisted"
+    )
 
 class SearchRequest(BaseModel):
     query: str

@@ -34,7 +34,7 @@ class InitService:
         """Clean up all core services"""
         try:
             await self.database.disconnect()
-            await self.redis_pool.close()
+            await self.redis_pool.aclose()
             self.logger.info("Core services cleaned up")
         except Exception as e:
             self.logger.error(f"Cleanup failed: {str(e)}")

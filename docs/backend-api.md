@@ -40,9 +40,9 @@ Create and store a new model configuration
 - 400: Invalid request format or duplicate model name
 - 500: Model creation failed
 
-## Chat Endpoint
+## Chat Endpoints
 
-### Process Chat
+### Process Chat Message
 ```
 POST /chat
 ```
@@ -60,9 +60,9 @@ Process chat messages using specified model
   "custom_config": {
     "model_id": "uuid-of-model"
   },
-  "stream": false
+  "stream": false,
+  "chat_name": "optional-chat-name"
 }
-```
 
 **Response:**
 ```json
@@ -76,7 +76,8 @@ Process chat messages using specified model
   "usage": {
     "input_tokens": 100,
     "output_tokens": 50
-  }
+  },
+  "chat_id": "uuid-string"
 }
 ```
 
@@ -84,6 +85,41 @@ Process chat messages using specified model
 - 400: Invalid request format
 - 404: Model not found
 - 500: Chat processing failed
+
+### Get Chat History
+```
+GET /chats/{identifier}/messages
+```
+Retrieve full conversation history for a chat. The identifier can be either:
+- chat_id (UUID format)
+- chat_name (string)
+
+**Response:**
+```json
+[
+  {
+    "message_id": 1,
+    "role": "user",
+    "content": "Hello",
+    "usage": null,
+    "created_at": "2025-03-31T12:00:00Z"
+  },
+  {
+    "message_id": 2,
+    "role": "assistant",
+    "content": "Hi there!",
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 5
+    },
+    "created_at": "2025-03-31T12:00:01Z"
+  }
+]
+```
+
+**Errors:**
+- 404: Chat not found
+- 400: Invalid identifier format
 
 ## Other Endpoints
 
@@ -161,16 +197,40 @@ curl -X POST http://localhost:8000/model/create \
   }'
 ```
 
-### Chat Request
+### Chat Request Examples
+
+Using chat_id:
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role": "user", "content": "Hello"}],
     "custom_config": {
-      "model_id": "your-model-uuid"  
+      "model_id": "your-model-uuid"
     }
   }'
+```
+
+Using chat_name:
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "Hello"}],
+    "custom_config": {
+      "model_id": "your-model-uuid"
+    },
+    "chat_name": "my-conversation"
+  }'
+```
+
+Get chat history:
+```bash
+# By chat_id
+curl http://localhost:8000/chats/123e4567-e89b-12d3-a456-426614174000/messages
+
+# By chat_name
+curl http://localhost:8000/chats/my-conversation/messages
 ```
 
 ## Rate Limits
