@@ -1,8 +1,8 @@
 import logging
 from typing import Dict
-from models import HealthCheckResponse
+from backend.models import HealthCheckResponse
 from .config import HealthConfig
-from services.core.init_service import InitService
+from backend.services.core.init_service import InitService
 
 class HealthService:
     def __init__(self, config: HealthConfig, init_service: InitService):

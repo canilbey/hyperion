@@ -2,7 +2,7 @@ import logging
 import os
 import uuid
 from typing import Optional
-from models import FileUploadResponse
+from backend.models import FileUploadResponse
 from .config import FileConfig  # Added import for FileConfig
 
 class FileService:

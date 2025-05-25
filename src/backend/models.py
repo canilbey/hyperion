@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, EmailStr
 from typing import List, Optional, Literal, Dict
 from enum import Enum
 import uuid
@@ -92,3 +92,37 @@ class HealthCheckResponse(BaseModel):
     status: str
     database: str
     redis: str
+
+class Role(str, Enum):
+    ADMIN = "admin"
+    USER = "user"
+
+class UserBase(BaseModel):
+    email: EmailStr
+    is_active: bool = True
+
+class UserCreate(UserBase):
+    password: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserInDB(UserBase):
+    id: uuid.UUID
+    hashed_password: str
+    roles: List[Role] = []
+
+class UserPublic(UserBase):
+    id: uuid.UUID
+    roles: List[Role] = []
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+class TokenPayload(BaseModel):
+    sub: str  # user_id
+    roles: List[Role]
+    exp: int

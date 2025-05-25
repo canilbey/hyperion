@@ -3,19 +3,20 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import uuid
 import logging
-from services.chat.service import ChatService
-from services.chat.storage import ChatStorageService
-from services.model.service import ModelService
-from services.file.config import FileConfig
-from services.search.service import SearchService
-from services.health.service import HealthService
-from services.core.config import CoreConfig
-from services.core.init_service import InitService
-from models import (
+from backend.services.chat.service import ChatService
+from backend.services.chat.storage import ChatStorageService
+from backend.services.model.service import ModelService
+from backend.services.file.config import FileConfig
+from backend.services.search.service import SearchService
+from backend.services.health.service import HealthService
+from backend.services.core.config import CoreConfig
+from backend.services.core.init_service import InitService
+from backend.models import (
     ChatRequest, ChatResponse, 
     SearchRequest, FileUploadResponse,
     ModelCreateRequest, ModelCreateResponse
 )
+from backend.services.auth import router as auth_router
 
 # Configure logging
 logging.basicConfig(
@@ -52,6 +53,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 @app.on_event("startup")
 async def startup():

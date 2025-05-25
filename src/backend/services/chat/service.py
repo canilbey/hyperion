@@ -2,10 +2,16 @@ import logging
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 import json
-from models import ChatRequest, ChatResponse
-from services.model.service import ModelService
+from backend.models import ChatRequest, ChatResponse
+from backend.services.model.service import ModelService
 from .config import ChatConfig
 from .storage import ChatStorageService
+
+class UUIDEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, UUID):
+            return str(obj)
+        return super().default(obj)
 
 class ChatService:
     def __init__(self, config: ChatConfig, model_service: ModelService, storage_service: ChatStorageService, redis_pool=None):
@@ -40,23 +46,28 @@ class ChatService:
                         usage=None
                     )
             
-            # Get model configuration - try cache first
+            # Get model configuration
             model_config = await self._get_cached_model_config(
-                model_id=request.custom_config.model_id,
-                model_name=request.custom_config.model_name
+                model_id=request.custom_config.model_id if request.custom_config else None,
+                model_name=request.custom_config.model_name if request.custom_config else None
             )
             
-            # Get chat history for context - try cache first
+            if not model_config:
+                raise ValueError("Model configuration not found. Please provide a valid model_id or model_name.")
+            
+            # Get chat history for context
             context_messages = await self._get_cached_chat_history(chat_id)
             
             # Process messages with context
             response = await self._generate_response(
                 messages=[m.dict() for m in context_messages],
                 model_config=model_config,
-                stream=request.stream
+                stream=request.stream if request.stream else False
             )
+            if response is None:
+                raise ValueError("Model API'den geçerli bir yanıt alınamadı. Lütfen model ayarlarını ve API anahtarını kontrol edin.")
             
-            # Store assistant response and invalidate cache
+            # Store assistant response
             await self.storage_service.add_message(
                 chat_id=chat_id,
                 role="assistant",
@@ -64,6 +75,8 @@ class ChatService:
                 usage=response.get("usage"),
                 chat_name=chat_name or request.chat_name
             )
+            
+            # Invalidate cache
             await self._invalidate_chat_cache(chat_id)
             
             return ChatResponse(
@@ -112,9 +125,37 @@ class ChatService:
                     detail="Too many requests to OpenRouter API"
                 )
 
+        self.logger.info(f"Calling OpenRouter API: model={model}")
+        self.logger.debug(f"OpenRouter API request data: {messages}")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": messages
+                },
+                headers=headers
+            )
+
+        self.logger.debug(f"OpenRouter API response: {response}")
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Error calling OpenRouter API: {response.text}"
+            )
+        
+        data = response.json()
+        return {
+            "message": data["choices"][0]["message"],
+            "model": model,
+            "provider": "openrouter",
+            "usage": data.get("usage")
         }
 
     async def _get_cached_chat_history(self, chat_id: UUID) -> List[Dict]:
@@ -123,60 +164,69 @@ class ChatService:
             return await self.storage_service.get_chat_history(chat_id)
 
         cache_key = f"chat:{chat_id}:history"
-        cached = await self.redis_pool.get(cache_key)
-        if cached:
-            self.logger.debug(f"Cache hit for chat history: {chat_id}")
-            return json.loads(cached)
+        try:
+            cached = await self.redis_pool.get(cache_key)
+            if cached:
+                self.logger.debug(f"Cache hit for chat history: {chat_id}")
+                return json.loads(cached)
 
-        messages = await self.storage_service.get_chat_history(chat_id)
-        await self.redis_pool.setex(cache_key, 3600, json.dumps([m.dict() for m in messages]))  # 1 hour TTL
-        return messages
+            messages = await self.storage_service.get_chat_history(chat_id)
+            if messages:
+                await self.redis_pool.setex(
+                    cache_key,
+                    3600,  # 1 hour TTL
+                    json.dumps([m.dict() for m in messages], cls=UUIDEncoder)
+                )
+            return messages
+        except Exception as e:
+            self.logger.error(f"Error getting chat history: {str(e)}")
+            return await self.storage_service.get_chat_history(chat_id)
 
     async def _invalidate_chat_cache(self, chat_id: UUID):
-        """Invalidate cached chat history when new messages are added"""
+        """Invalidate cached chat history"""
         if not self.redis_pool:
             return
 
-        cache_key = f"chat:{chat_id}:history"
-        await self.redis_pool.delete(cache_key)
-        self.logger.debug(f"Invalidated cache for chat: {chat_id}")
+        try:
+            cache_key = f"chat:{chat_id}:history"
+            await self.redis_pool.delete(cache_key)
+            self.logger.debug(f"Invalidated cache for chat: {chat_id}")
+        except Exception as e:
+            self.logger.error(f"Error invalidating cache: {str(e)}")
 
-    async def _get_cached_model_config(self, model_id: Optional[str] = None,
-                                     model_name: Optional[str] = None) -> Dict:
+    async def _get_cached_model_config(self, model_id: Optional[str] = None, model_name: Optional[str] = None) -> Dict:
         """Get model config from cache or database"""
+        if not model_id and not model_name:
+            return None
+
         if not self.redis_pool:
-            return await self.model_service.get_model_config(model_id, model_name)
+            config = await self.model_service.get_model_config(model_id, model_name)
+            if config is None:
+                return None
+            # Sadece gerekli alanları (örneğin provider, model, api_key vb.) alıp, datetime alanlarını (created_at, updated_at) çıkarıyoruz.
+            return {k: v for (k, v) in config.items() if k not in ("created_at", "updated_at")}
 
         cache_key = f"model_config:{model_id or model_name}"
-        cached = await self.redis_pool.get(cache_key)
-        if cached:
-            self.logger.debug(f"Cache hit for model config: {cache_key}")
-            return json.loads(cached)
+        try:
+            cached = await self.redis_pool.get(cache_key)
+            if cached:
+                self.logger.debug(f"Cache hit for model config: {cache_key}")
+                return json.loads(cached)
 
-        config = await self.model_service.get_model_config(model_id, model_name)
-        await self.redis_pool.setex(cache_key, 86400, json.dumps(config))  # 24 hour TTL
-        return config
-        
-        data = {
-            "model": model,
-            "messages": messages
-        }
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=data
-            )
-            response.raise_for_status()
-            result = response.json()
-            
-            return {
-                "message": result["choices"][0]["message"],
-                "model": model,
-                "provider": "openrouter",
-                "usage": result.get("usage")
-            }
+            config = await self.model_service.get_model_config(model_id, model_name)
+            if config is None:
+                return None
+            # Sadece gerekli alanları (örneğin provider, model, api_key vb.) alıp, datetime alanlarını (created_at, updated_at) çıkarıyoruz.
+            config_filtered = {k: v for (k, v) in config.items() if k not in ("created_at", "updated_at")}
+            await self.redis_pool.setex(cache_key, 86400, json.dumps(config_filtered, cls=UUIDEncoder))
+            return config_filtered
+        except Exception as e:
+            self.logger.error(f"Error getting model config: {str(e)}")
+            config = await self.model_service.get_model_config(model_id, model_name)
+            if config is None:
+                return None
+            # Sadece gerekli alanları (örneğin provider, model, api_key vb.) alıp, datetime alanlarını (created_at, updated_at) çıkarıyoruz.
+            return {k: v for (k, v) in config.items() if k not in ("created_at", "updated_at")}
 
     async def _call_openai_api(self, messages: List[Dict], model: str, api_key: str) -> Dict:
         """Call OpenAI API with the given messages"""
@@ -194,12 +244,16 @@ class ChatService:
                     detail="Too many requests to OpenAI API"
                 )
 
+        self.logger.info(f"Calling OpenAI API: model={model}")
+        self.logger.debug(f"OpenAI API request data: {messages}")
         openai.api_key = api_key
         
         response = await openai.ChatCompletion.acreate(
             model=model,
             messages=messages
         )
+        
+        self.logger.debug(f"OpenAI API response: {response}")
         
         return {
             "message": response["choices"][0]["message"],
@@ -224,6 +278,8 @@ class ChatService:
                     detail="Too many requests to Anthropic API"
                 )
         
+        self.logger.info(f"Calling Anthropic API: model={model}")
+        self.logger.debug(f"Anthropic API request data: {messages}")
         client = anthropic.AsyncAnthropic(api_key=api_key)
         
         response = await client.messages.create(
@@ -231,6 +287,8 @@ class ChatService:
             messages=messages,
             max_tokens=1000
         )
+        
+        self.logger.debug(f"Anthropic API response: {response}")
         
         return {
             "message": {

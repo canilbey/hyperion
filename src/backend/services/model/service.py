@@ -2,7 +2,7 @@ import logging
 import uuid
 from typing import Optional, Dict, List
 from databases import Database
-from models import ModelCreateRequest, ModelCreateResponse, ModelConfigRequest
+from backend.models import ModelCreateRequest, ModelCreateResponse, ModelConfigRequest
 from .config import ModelConfig  # Added import for ModelConfig
 
 class ModelService:

@@ -15,3 +15,7 @@ pytest-asyncio
 httpx
 mock
 aiohttp>=3.8.6
+email_validator
+bcrypt
+pyjwt
+requests>=2.31.0

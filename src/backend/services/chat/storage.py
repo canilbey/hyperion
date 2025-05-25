@@ -2,7 +2,7 @@ import logging
 from typing import List, Dict, Optional
 from uuid import UUID
 from databases import Database
-from models import ChatMessage
+from backend.models import ChatMessage
 import json
 
 class ChatStorageService:

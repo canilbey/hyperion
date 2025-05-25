@@ -4,54 +4,66 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - uploads:/app/uploads
-      - ./tests:/app/tests
+      - ./src/backend:/app/backend
+      - uploads:/uploads
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      - REDIS_URL=redis://redis:6379
-      - UPLOAD_DIR=/app/uploads
+      - CORE_DATABASE_URL=postgresql://hyperion:hyperion123@db:5432/hyperion
+      - CORE_REDIS_URL=redis://redis:6379
+      - CORE_UPLOAD_DIR=/uploads
+      - CORE_OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - CORE_OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-3.5-turbo}
+      - COOKIE_SECURE=false
+      - COOKIE_DOMAIN=localhost
+      - JWT_SECRET=${JWT_SECRET:-changeme-super-secret}
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRY_MINUTES=30
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.frontend
+  #   ports:
+  #     - "3000:80"
+  #   depends_on:
+  #     backend:
+  #       condition: service_healthy
+  #   networks:
+  #     - hyperion-network
 
   db:
-    image: postgres:17
+    image: postgres:15
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=hyperion
+      - POSTGRES_PASSWORD=hyperion123
+      - POSTGRES_DB=hyperion
     ports:
-      - "5431:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U hyperion -d hyperion"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   redis:
-    image: redis:6
+    image: redis:7
     ports:
       - "6379:6379"
     volumes:
@@ -61,8 +73,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
 volumes:
-  uploads:
   postgres_data:
   redis_data:
+  uploads:
+
+networks:
+  hyperion-network:
+    driver: bridge

@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 from config.models import ModelProvider, ModelConfig
 from fastapi import HTTPException
-from services.model_service import ModelService
+from backend.services.model_service import ModelService
 
 logger = logging.getLogger(__name__)
 

@@ -3,13 +3,30 @@ import asyncio
 from databases import Database
 import redis.asyncio as redis
 from .config import CoreConfig
+from .model import OpenRouterModel
+from .migration_manager import ServiceMigrationManager
+
+# Singleton database instance
+_db = None
+
+def get_db() -> Database:
+    """Get or create database connection"""
+    global _db
+    if _db is None:
+        config = CoreConfig()
+        _db = Database(config.database_url)
+        # Connect to database
+        asyncio.create_task(_db.connect())
+    return _db
 
 class InitService:
     def __init__(self, config: CoreConfig):
         self.config = config
-        self.database = Database(config.database_url)
+        self.database = get_db()
         self.redis_pool = redis.from_url(config.redis_url)
         self.logger = logging.getLogger(__name__)
+        self.model = OpenRouterModel(config.openrouter_api_key, config.openrouter_model)
+        self.migration_manager = ServiceMigrationManager(self.database)
 
     async def initialize(self):
         """Initialize all core services with retry logic"""
@@ -21,6 +38,10 @@ class InitService:
             try:
                 await self.database.connect()
                 await self.redis_pool.ping()
+                
+                # Run migrations for all services
+                await self.migration_manager.run_all_migrations()
+                
                 self.logger.info("Core services initialized")
                 return
             except Exception as e:
@@ -55,3 +76,7 @@ class InitService:
                 "database": "error",
                 "redis": "error"
             }
+            
+    async def run_service_migrations(self, service_name: str) -> None:
+        """Run migrations for a specific service"""
+        await self.migration_manager.run_service_migrations(service_name)
