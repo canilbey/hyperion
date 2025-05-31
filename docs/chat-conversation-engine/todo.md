@@ -11,15 +11,15 @@
   _Allow users to fetch previous messages in a session._
 
 ## Milestone 2: LLM Integration & Context (Medium Priority)
-- [ ] Integrate chat history with LLMs  
+- [X] Integrate chat history with LLMs  
   _Provide chat context to LLMs for response generation._
-- [ ] Implement context window management logic  
+- [X] Implement context window management logic  
   _Manage the amount of chat history sent to LLMs._
 - [x] Integrate Redis cache for chat sessions  
   _Cache chat data for fast retrieval and scalability._
 
 ## Milestone 3: Quality & Observability (Medium/Low Priority)
-- [] Add logging and error handling to all endpoints  
+- [X] Add logging and error handling to all endpoints  
   _Log all chat operations and handle errors consistently._
 - [ ] Write unit and integration tests for chat endpoints  
   _Ensure reliability and correctness with automated tests._
@@ -35,7 +35,7 @@
   _Initialize FastAPI application structure._
 - [x] Set up LLM API/service credentials  
   _Configure LLM API keys and endpoints._
-- [ ] Set up monitoring and logging infrastructure  
+- [X] Set up monitoring and logging infrastructure  
   _Prepare Prometheus, ELK, and related tools._
 
 ## Responsible Roles
@@ -50,3 +50,8 @@
 - [x] Automatic migration support added (migrations run automatically on backend startup)
 - [x] LLM API calls (OpenRouter, OpenAI, Anthropic) are now logged
 - [x] Faulty migrations fixed, now safe and idempotent
+
+## Added (2024-06)
+# The centralized Settings class integration is postponed for future development. All related tasks are removed from the current milestone.
+
+# 2024-06: Context window, zincir, logging ve izleme tamamlandı.

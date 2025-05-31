@@ -3,9 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import uuid
 import logging
-from backend.services.chat.service import ChatService
-from backend.services.chat.storage import ChatStorageService
-from backend.services.model.service import ModelService
+from backend.services.chat import ChatServiceManager, ChatConfig
+from backend.services.model import ModelServiceManager, ModelConfig
 from backend.services.file.config import FileConfig
 from backend.services.search.service import SearchService
 from backend.services.health.service import HealthService
@@ -34,12 +33,16 @@ app = FastAPI()
 # Initialize configurations
 core_config = CoreConfig()
 file_config = FileConfig()
+model_config = ModelConfig()
+chat_config = ChatConfig()
 
-# Initialize services
+# Initialise core *first* so that db / redis handles are ready
 init_service = InitService(core_config)
-model_service = ModelService(core_config, init_service.database)
-chat_storage_service = ChatStorageService(init_service.database)
-chat_service = ChatService(core_config, model_service, chat_storage_service, init_service.redis_pool)
+
+# These managers depend on the handles that `init_service.initialize` prepares.
+# Therefore, build them inside the `startup` lifecycle hook after core is up.
+model_service_manager: ModelServiceManager  # type: ignore [var-annotated]
+chat_service_manager: ChatServiceManager    # type: ignore
 search_service = SearchService(core_config)
 health_service = HealthService(core_config, init_service)
 
@@ -55,11 +58,32 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-
 @app.on_event("startup")
 async def startup():
-    await init_service.initialize()
-    logger.info("Service startup completed")
+    global model_service_manager, chat_service_manager
+    try:
+        # Initialize core services
+        await init_service.initialize()
+        logger.info("Core services initialized")
+        
+        # Initialize model service manager
+        model_service_manager = ModelServiceManager(init_service.database, model_config)
+        await model_service_manager.initialize()
+        logger.info("Model service initialized")
+        
+        # Initialize chat service manager
+        chat_service_manager = ChatServiceManager(
+            model_service=model_service_manager.service,
+            database=init_service.database,
+            redis=init_service.redis_pool
+        )
+        await chat_service_manager.initialize()
+        logger.info("Chat service initialized")
+        
+        logger.info("Service startup completed successfully")
+    except Exception as e:
+        logger.error(f"Service startup failed: {e}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -72,7 +96,10 @@ async def health_check():
 
 @app.post("/upload", response_model=FileUploadResponse)
 async def upload_file(file: UploadFile = File(...)):
+    # TODO: instantiate or import the proper file‐handling service.
     try:
+        from backend.services.file.service import FileService
+        file_service = FileService(file_config)
         return await file_service.handle_upload(file, core_config.upload_dir)
     except Exception as e:
         logger.error(f"File upload failed: {str(e)}")
@@ -80,7 +107,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    return await chat_service.process_chat_request(
+    return await chat_service_manager.service.process_chat_request(
         request,
         chat_name=request.chat_name
     )
@@ -88,19 +115,17 @@ async def chat_endpoint(request: ChatRequest):
 @app.get("/chats")
 async def list_chats():
     """List all chat sessions with metadata"""
-    return await chat_service.storage_service.list_chats()
+    return await chat_service_manager.service.storage_service.list_chats()
 
 @app.get("/chats/{identifier}/messages")
 async def get_chat_history(identifier: str):
     """Get messages for a chat (either by ID or name)"""
     try:
-        # Try to parse as UUID first
         from uuid import UUID
         chat_id = UUID(identifier)
-        return await chat_service.storage_service.get_chat_history(chat_id=chat_id)
+        return await chat_service_manager.service.storage_service.get_chat_history(chat_id=chat_id)
     except ValueError:
-        # If not UUID, treat as chat_name
-        return await chat_service.storage_service.get_chat_history(chat_name=identifier)
+        return await chat_service_manager.service.storage_service.get_chat_history(chat_name=identifier)
 
 @app.patch("/chats/{identifier}")
 async def update_chat(identifier: str, update_data: dict):
@@ -108,9 +133,9 @@ async def update_chat(identifier: str, update_data: dict):
     try:
         from uuid import UUID
         chat_id = UUID(identifier)
-        return await chat_service.storage_service.update_chat(chat_id=chat_id, update_data=update_data)
+        return await chat_service_manager.service.storage_service.update_chat(chat_id=chat_id, update_data=update_data)
     except ValueError:
-        return await chat_service.storage_service.update_chat(chat_name=identifier, update_data=update_data)
+        return await chat_service_manager.service.storage_service.update_chat(chat_name=identifier, update_data=update_data)
 
 @app.delete("/chats/{identifier}")
 async def delete_chat(identifier: str):
@@ -118,9 +143,9 @@ async def delete_chat(identifier: str):
     try:
         from uuid import UUID
         chat_id = UUID(identifier)
-        return await chat_service.storage_service.delete_chat(chat_id=chat_id)
+        return await chat_service_manager.service.storage_service.delete_chat(chat_id=chat_id)
     except ValueError:
-        return await chat_service.storage_service.delete_chat(chat_name=identifier)
+        return await chat_service_manager.service.storage_service.delete_chat(chat_name=identifier)
 
 @app.post("/chat/{identifier}")
 async def continue_chat(identifier: str, request: ChatRequest):
@@ -128,9 +153,9 @@ async def continue_chat(identifier: str, request: ChatRequest):
     try:
         from uuid import UUID
         chat_id = UUID(identifier)
-        return await chat_service.process_chat_request(request, chat_id=chat_id)
+        return await chat_service_manager.service.process_chat_request(request, chat_id=chat_id)
     except ValueError:
-        return await chat_service.process_chat_request(request, chat_name=identifier)
+        return await chat_service_manager.service.process_chat_request(request, chat_name=identifier)
 
 @app.post("/search")
 async def vector_search(request: SearchRequest):
@@ -138,27 +163,27 @@ async def vector_search(request: SearchRequest):
 
 @app.post("/model/create", response_model=ModelCreateResponse)
 async def create_model(request: ModelCreateRequest):
-    return await model_service.create_model(request)
+    return await model_service_manager.create_model(request)
 
 @app.get("/models")
 async def list_models():
     """List all registered models"""
-    return await model_service.list_models()
+    return await model_service_manager.list_models()
 
 @app.get("/model/{model_id}")
 async def get_model(model_id: str):
     """Get details of a specific model"""
-    return await model_service.get_model(model_id)
+    return await model_service_manager.get_model(model_id)
 
 @app.patch("/model/{model_id}")
 async def update_model(model_id: str, update_data: dict):
     """Partial update of model configuration"""
-    return await model_service.update_model(model_id, update_data)
+    return await model_service_manager.update_model(model_id, update_data)
 
 @app.delete("/model/{model_id}")
 async def delete_model(model_id: str):
     """Delete a model configuration"""
-    return await model_service.delete_model(model_id)
+    return await model_service_manager.delete_model(model_id)
 
 if __name__ == "__main__":
     import uvicorn

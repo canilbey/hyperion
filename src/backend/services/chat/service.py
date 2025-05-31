@@ -2,10 +2,14 @@ import logging
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 import json
-from backend.models import ChatRequest, ChatResponse
+from backend.models import ChatRequest, ChatResponse, ChatSession, ChatMessage
 from backend.services.model.service import ModelService
 from .config import ChatConfig
 from .storage import ChatStorageService
+from .context_manager import ContextManager, ContextSettings, ContextWindow
+from .context_config import MODEL_CONTEXT_WINDOWS
+from .context_storage import ContextStorageService
+from datetime import datetime
 
 class UUIDEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -14,12 +18,42 @@ class UUIDEncoder(json.JSONEncoder):
         return super().default(obj)
 
 class ChatService:
-    def __init__(self, config: ChatConfig, model_service: ModelService, storage_service: ChatStorageService, redis_pool=None):
+    def __init__(
+        self,
+        config: ChatConfig,
+        model_service: ModelService,
+        storage_service: ChatStorageService,
+        context_storage_service: ContextStorageService,
+        redis_pool=None
+    ):
         self.config = config
         self.model_service = model_service
         self.storage_service = storage_service
+        self.context_storage_service = context_storage_service
         self.redis_pool = redis_pool
         self.logger = logging.getLogger(__name__)
+        self.context_managers = {}  # Model bazlı context manager'lar
+
+    def _get_context_manager(self, model_id: str) -> ContextManager:
+        """Model için context manager'ı döndürür veya oluşturur"""
+        if model_id not in self.context_managers:
+            # Model için context window ayarlarını al
+            context_window = MODEL_CONTEXT_WINDOWS.get(model_id, ContextWindow(
+                model=model_id,
+                max_tokens=4000,  # Varsayılan değer
+                max_messages=50
+            ))
+            
+            # Context settings oluştur
+            settings = ContextSettings()
+            
+            # Context manager oluştur
+            self.context_managers[model_id] = ContextManager(
+                settings,
+                model_service=self.model_service
+            )
+            
+        return self.context_managers[model_id]
 
     async def process_chat_request(
         self,
@@ -35,36 +69,59 @@ class ChatService:
             if not chat_id:
                 chat_id = await self.storage_service.create_chat(label=chat_name or request.chat_name)
             
-            # Store user messages
+            # Get model configuration
+            model_id = request.custom_config.model_id if request.custom_config else None
+            model_config = await self._get_cached_model_config(model_id=model_id)
+            
+            if not model_config:
+                raise ValueError("Model configuration not found. Please provide a valid model_id.")
+            
+            # Get context manager for the model
+            context_manager = self._get_context_manager(model_id)
+            
+            # Get existing context or create new one
+            existing_context = await self.context_storage_service.get_context(chat_id)
+
+            messages = []
+            if existing_context:
+                messages.extend(existing_context.messages)
+            else:
+                history = await self._get_cached_chat_history(chat_id)
+                messages.extend([ChatMessage(**msg) if isinstance(msg, dict) else msg for msg in history])
+
+            # Store user messages (yeni mesajlar sona eklenir)
             for msg in request.messages:
                 if msg.role == "user":
-                    await self.storage_service.add_message(
+                    message_id = await self.storage_service.add_message(
                         chat_id=chat_id,
                         role=msg.role,
                         content=msg.content,
                         chat_name=chat_name or request.chat_name,
                         usage=None
                     )
+                    messages.append(ChatMessage(
+                        id=message_id,
+                        chat_id=chat_id,
+                        role=msg.role,
+                        content=msg.content,
+                        created_at=None  # DB'den gelecek
+                    ))
             
-            # Get model configuration
-            model_config = await self._get_cached_model_config(
-                model_id=request.custom_config.model_id if request.custom_config else None,
-                model_name=request.custom_config.model_name if request.custom_config else None
+            # Create chat session for context
+            session = ChatSession(
+                id=chat_id,
+                model_id=model_id,
+                temperature=model_config.get("temperature", 0.7)
             )
             
-            if not model_config:
-                raise ValueError("Model configuration not found. Please provide a valid model_id or model_name.")
-            
-            # Get chat history for context
-            context_messages = await self._get_cached_chat_history(chat_id)
-            
-            # Process messages with context
-            response = await self._generate_response(
-                messages=[m.dict() for m in context_messages],
-                model_config=model_config,
-                stream=request.stream if request.stream else False
+            # Gerçek model yanıtı al
+            response = await self.call_model_api(
+                session=session,
+                messages=messages,
+                custom_system_prompt=getattr(request.custom_config, 'system_prompt', None) if request.custom_config else None
             )
-            if response is None:
+            
+            if not response:
                 raise ValueError("Model API'den geçerli bir yanıt alınamadı. Lütfen model ayarlarını ve API anahtarını kontrol edin.")
             
             # Store assistant response
@@ -74,6 +131,34 @@ class ChatService:
                 content=response["message"]["content"],
                 usage=response.get("usage"),
                 chat_name=chat_name or request.chat_name
+            )
+            
+            # Update context
+            context = await context_manager.prepare_context(
+                messages=messages + [ChatMessage(
+                    id=None,
+                    chat_id=chat_id,
+                    role="assistant",
+                    content=response["message"]["content"],
+                    created_at=None
+                )],
+                custom_system_prompt=getattr(request.custom_config, 'system_prompt', None) if request.custom_config else None,
+                session_id=str(chat_id),
+                model=model_config["model"],
+                temperature=model_config.get("temperature", 0.7),
+                max_tokens=model_config.get("max_tokens", 4000),
+                created_at=datetime.utcnow()
+            )
+            
+            await self.context_storage_service.update_context(
+                chat_id=chat_id,
+                context=context,
+                metadata={
+                    "model": model_config["model"],
+                    "temperature": model_config.get("temperature", 0.7),
+                    "provider": model_config.get("provider"),
+                    "last_updated": datetime.utcnow().isoformat()
+                }
             )
             
             # Invalidate cache
@@ -151,6 +236,7 @@ class ChatService:
             )
         
         data = response.json()
+        self.logger.debug(f"OpenRouter API response JSON: {data}")
         return {
             "message": data["choices"][0]["message"],
             "model": model,
@@ -194,39 +280,45 @@ class ChatService:
         except Exception as e:
             self.logger.error(f"Error invalidating cache: {str(e)}")
 
-    async def _get_cached_model_config(self, model_id: Optional[str] = None, model_name: Optional[str] = None) -> Dict:
-        """Get model config from cache or database"""
-        if not model_id and not model_name:
+    async def call_model_api(self, session, messages, custom_system_prompt=None):
+        """Gerçek model API çağrısı yapar."""
+        model_id = getattr(session, 'model_id', None)
+        self.logger.info(f"call_model_api: model_id={model_id}")
+        model_config = await self._get_cached_model_config(model_id=model_id)
+        api_key = model_config.get("api_key")
+        model = model_config["model"]
+        self.logger.info(f"call_model_api: model_config={model_config}")
+        self.logger.info(f"call_model_api: api_key={api_key}")
+        # Mesajları serializable hale getir
+        messages_dict = self._serialize_messages_for_llm(messages)
+        if model_config["provider"] == "openrouter":
+            return await self._call_openrouter_api(messages_dict, model, api_key)
+        raise NotImplementedError(f"Provider {model_config['provider']} not implemented.")
+
+    async def _get_cached_model_config(self, model_id: Optional[str] = None) -> Dict:
+        """Sadece model_id ile cache/DB'den model config getirir."""
+        self.logger.info(f"_get_cached_model_config: model_id={model_id}")
+        if not model_id:
             return None
-
-        if not self.redis_pool:
-            config = await self.model_service.get_model_config(model_id, model_name)
-            if config is None:
-                return None
-            # Sadece gerekli alanları (örneğin provider, model, api_key vb.) alıp, datetime alanlarını (created_at, updated_at) çıkarıyoruz.
-            return {k: v for (k, v) in config.items() if k not in ("created_at", "updated_at")}
-
-        cache_key = f"model_config:{model_id or model_name}"
-        try:
+        cache_key = f"model_config:{model_id}"
+        if self.redis_pool:
             cached = await self.redis_pool.get(cache_key)
             if cached:
                 self.logger.debug(f"Cache hit for model config: {cache_key}")
-                return json.loads(cached)
-
-            config = await self.model_service.get_model_config(model_id, model_name)
-            if config is None:
-                return None
-            # Sadece gerekli alanları (örneğin provider, model, api_key vb.) alıp, datetime alanlarını (created_at, updated_at) çıkarıyoruz.
-            config_filtered = {k: v for (k, v) in config.items() if k not in ("created_at", "updated_at")}
+                config = json.loads(cached)
+                if config.get("api_key") and config.get("provider") and config.get("model"):
+                    return config
+                else:
+                    self.logger.warning(f"Cache fallback: Eksik alan tespit edildi, DB'den güncellenecek. Anahtar: {cache_key}")
+        # Cache yoksa veya eksikse DB'den çek
+        config = await self.model_service.get_model_config(model_id=model_id)
+        self.logger.info(f"_get_cached_model_config: config={config}")
+        if config is None:
+            return None
+        config_filtered = {k: v for (k, v) in config.items() if k not in ("created_at", "updated_at")}
+        if self.redis_pool:
             await self.redis_pool.setex(cache_key, 86400, json.dumps(config_filtered, cls=UUIDEncoder))
-            return config_filtered
-        except Exception as e:
-            self.logger.error(f"Error getting model config: {str(e)}")
-            config = await self.model_service.get_model_config(model_id, model_name)
-            if config is None:
-                return None
-            # Sadece gerekli alanları (örneğin provider, model, api_key vb.) alıp, datetime alanlarını (created_at, updated_at) çıkarıyoruz.
-            return {k: v for (k, v) in config.items() if k not in ("created_at", "updated_at")}
+        return config_filtered
 
     async def _call_openai_api(self, messages: List[Dict], model: str, api_key: str) -> Dict:
         """Call OpenAI API with the given messages"""
@@ -302,3 +394,21 @@ class ChatService:
                 "output_tokens": response.usage.output_tokens
             }
         }
+
+    def _serialize_messages_for_llm(self, messages):
+        """LLM'e gönderilecek mesajları JSON serializable hale getirir."""
+        serialized = []
+        for m in messages:
+            # Eğer ChatMessage veya Message ise dict'e çevir
+            d = m.dict() if hasattr(m, 'dict') else dict(m)
+            # role enum ise string'e çevir
+            if hasattr(d['role'], 'value'):
+                d['role'] = d['role'].value
+            # timestamp varsa string'e çevir
+            if d.get('timestamp'):
+                if hasattr(d['timestamp'], 'isoformat'):
+                    d['timestamp'] = d['timestamp'].isoformat()
+                else:
+                    d['timestamp'] = str(d['timestamp'])
+            serialized.append({k: v for k, v in d.items() if v is not None})
+        return serialized

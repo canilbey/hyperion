@@ -2,26 +2,48 @@ import os
 import logging
 import aiohttp
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from tenacity import retry, stop_after_attempt, wait_exponential
 from config.models import ModelProvider, ModelConfig
 from fastapi import HTTPException
-from backend.services.model_service import ModelService
+from backend.services.model.service import ModelService
+from .chat.context_manager import ContextManager, ContextWindow
+from .chat.context_config import ContextSettings
+from .chat.context_types import Context, Message
+from ...models import ChatSession, ChatMessage
 
 logger = logging.getLogger(__name__)
 
 class ChatService:
     def __init__(self, model_service: ModelService):
         self.model_service = model_service
-        logger.info("Initialized ChatService")
+        self.context_settings = ContextSettings()
+        self.context_manager = ContextManager(
+            model_service=model_service,
+            window_config=ContextWindow()  # Varsayılan yapılandırma
+        )
+        logger.info("Initialized ChatService with context management")
         
-    async def _call_openrouter(self, messages: list, model_config: ModelConfig) -> dict:
+    def _get_context_window(self, model_name: str) -> ContextWindow:
+        """Model için bağlam penceresi yapılandırmasını döndürür"""
+        config = self.context_settings.get_model_config(model_name)
+        return ContextWindow(
+            max_tokens=config.max_tokens,
+            max_messages=config.max_messages,
+            system_prompt=config.system_prompt
+        )
+
+    async def _call_openrouter(self, messages: list, model_config: ModelConfig, context: Optional[Context] = None) -> dict:
         headers = {
             "Authorization": f"Bearer {model_config.api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "http://localhost:8000",
             "X-Title": "Hyperion"
         }
+        
+        # Bağlam varsa, mesajları bağlamdan al
+        if context:
+            messages = [msg.dict() for msg in context.messages]
         
         data = {
             "model": model_config.model,
@@ -44,7 +66,12 @@ class ChatService:
                 "model": model_config.model,
                 "has_api_key": bool(model_config.api_key),
                 "temperature": model_config.temperature
-            }
+            },
+            "context": {
+                "has_context": bool(context),
+                "message_count": len(context.messages) if context else 0,
+                "max_tokens": context.metadata.max_tokens if context else None
+            } if context else None
         })
         
         try:
@@ -119,56 +146,63 @@ class ChatService:
         return None  # RAG functionality not currently implemented
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    async def process_chat_request(self, messages: list, model_config: ModelConfig, stream: bool = False):
+    async def process_chat_request(
+        self,
+        session: ChatSession,
+        messages: List[ChatMessage],
+        model_config: ModelConfig,
+        stream: bool = False,
+        custom_system_prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
         try:
-            logger.info("Processing chat request with config: %s", {
-                'provider': model_config.provider.value,
-                'model': model_config.model,
-                'has_api_key': bool(model_config.api_key),
-                'temperature': model_config.temperature
-            })
-            
-            # Verify model configuration
-            if not model_config.api_key:
-                error_msg = "API key is required for OpenRouter"
-                logger.error(error_msg)
-                raise HTTPException(
-                    status_code=400,
-                    detail=error_msg
-                )
-                
-            if not model_config.model:
-                error_msg = "Model name is required"
-                logger.error(error_msg)
-                raise HTTPException(
-                    status_code=400,
-                    detail=error_msg
-                )
-
-            # Get RAG context if configured
-            user_message = next(m for m in messages if m["role"] == "user")
-            rag_context = await self.get_rag_context(user_message["content"])
-            
-            if rag_context:
-                messages = [{"role": "system", "content": rag_context}] + messages
-
-            logger.info("Starting chat request processing", extra={
+            logger.info("Processing chat request", extra={
                 "event": "chat_request_start",
+                "session_id": str(session.id),
                 "model": model_config.model,
                 "provider": model_config.provider.value,
-                "message_count": len(messages),
-                "has_rag_context": bool(rag_context)
+                "message_count": len(messages)
             })
+            
+            # Model için bağlam penceresini güncelle
+            self.context_manager.window_config = self._get_context_window(model_config.model)
+            
+            # Bağlamı hazırla
+            context = await self.context_manager.prepare_context(
+                session=session,
+                messages=messages,
+                custom_system_prompt=custom_system_prompt
+            )
+            
+            # Get RAG context if configured
+            user_message = next((m for m in messages if m.role == "user"), None)
+            if user_message is None:
+                raise HTTPException(status_code=400, detail="No user message found")
+            rag_context = await self.get_rag_context(user_message.content)
+            
+            if rag_context:
+                context["messages"].insert(0, {
+                    "role": "system",
+                    "content": rag_context
+                })
 
             if model_config.provider == ModelProvider.OPENROUTER:
-                response = await self._call_openrouter(messages, model_config)
+                response = await self._call_openrouter(
+                    messages=[],  # Mesajlar bağlamdan alınacak
+                    model_config=model_config,
+                    context=Context(**context)
+                )
 
-                logger.info("Chat request completed successfully", extra={
+                logger.info("Chat request completed", extra={
                     "event": "chat_request_complete",
+                    "session_id": str(session.id),
                     "model": model_config.model,
                     "provider": model_config.provider.value,
                     "response_tokens": response.get("usage", {}).get("completion_tokens", 0),
-                    "prompt_tokens": response.get("usage", {}).get("prompt_tokens", 0)
+                    "prompt_tokens": response.get("usage", {}).get("prompt_tokens", 0),
+                    "context": {
+                        "message_count": len(context["messages"]),
+                        "max_tokens": context["metadata"]["max_tokens"]
+                    }
                 })
             else:
                 raise HTTPException(
@@ -183,12 +217,17 @@ class ChatService:
                 },
                 "model_used": model_config.model,
                 "provider": model_config.provider.value,
-                "usage": response.get("usage")
+                "usage": response.get("usage"),
+                "context": {
+                    "message_count": len(context["messages"]),
+                    "max_tokens": context["metadata"]["max_tokens"]
+                }
             }
             
         except HTTPException as he:
             logger.error("Chat processing HTTP exception", extra={
                 "event": "chat_request_failed",
+                "session_id": str(session.id),
                 "error_type": "HTTPException",
                 "status_code": he.status_code,
                 "detail": he.detail
@@ -198,10 +237,11 @@ class ChatService:
             error_msg = f"Chat processing error: {str(e)}"
             logger.error(error_msg, extra={
                 "event": "chat_request_failed",
+                "session_id": str(session.id),
                 "error_type": type(e).__name__,
                 "error_details": str(e),
-                "model": self.config.get("model"),
-                "provider": self.config.get("provider")
+                "model": model_config.model,
+                "provider": model_config.provider.value
             })
             raise HTTPException(
                 status_code=500,

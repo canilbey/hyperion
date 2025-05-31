@@ -35,3 +35,5 @@
 
 ## References
 - See project.md and prd.md for more details. 
+
+# 2024-06: Vector search ve FastAPI entegrasyonu tamamlandı. 

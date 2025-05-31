@@ -24,24 +24,24 @@
 
 ## Milestone 2: LLM Integration & Context (Medium Priority)
 
-- **Integrate chat history with LLMs**
+- [x] Integrate chat history with LLMs
   - Purpose: Provide chat context to LLMs for response generation.
   - Design: Service or API call to LLM with relevant chat history.
   - Dependencies: LLM API/service credentials, chat history retrieval.
 
-- **Implement context window management logic**
+- [x] Implement context window management logic
   - Purpose: Manage the amount of chat history sent to LLMs for optimal performance.
   - Design: Sliding window or token-based context management.
   - Dependencies: Message schema, LLM integration.
 
-- **Integrate Redis cache for chat sessions**
+- [x] Integrate Redis cache for chat sessions
   - Purpose: Cache chat data for fast retrieval and scalability.
   - Design: Store recent sessions/messages in Redis, fallback to DB as needed.
   - Dependencies: Redis instance, session/message schema.
 
 ## Milestone 3: Quality & Observability (Medium/Low Priority)
 
-- **Add logging and error handling to all endpoints**
+- [x] Add logging and error handling to all endpoints
   - Purpose: Log all chat operations and handle errors consistently.
   - Design: Structured logging, error categorization, integration with observability stack.
   - Dependencies: Logging infrastructure.
@@ -56,6 +56,10 @@
   - Design: Endpoint descriptions, input/output schemas, and error codes.
   - Dependencies: API implementation.
 
+## Configuration Management Tasks
+
+# The centralized Settings class integration is postponed for future development. All related tasks are removed from the current milestone.
+
 ## Dependencies
 - PostgreSQL or NoSQL database instance for chat/message data
 - Redis for session/context caching
@@ -69,4 +73,6 @@
 
 ## References
 - See project.md for scope, architecture, and dependencies.
-- See prd.md for requirements and integration context. 
+- See prd.md for requirements and integration context.
+
+# 2024-06: Context window, zincir, cache ve logging tamamlandı. 

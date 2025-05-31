@@ -34,3 +34,19 @@ class ModelConfig(BaseModel):
         le=2.0,
         description="Model temperature parameter"
     )
+
+# Official model max_tokens limits (externalized for maintainability)
+MODEL_TOKEN_LIMITS = {
+    # OpenAI
+    'gpt-4': 8192,
+    'gpt-3.5': 16384,
+    # Anthropic
+    'claude-3': 200000,
+    # DeepSeek
+    'deepseek': 128000,
+    # Mistral variants
+    'mistral large 2': 128000,
+    'mistral nemo': 128000,
+    'mistral large': 32768,
+    'mistral': 32768,
+}

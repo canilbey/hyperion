@@ -19,3 +19,4 @@ email_validator
 bcrypt
 pyjwt
 requests>=2.31.0
+tiktoken>=0.5.1
