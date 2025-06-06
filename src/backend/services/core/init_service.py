@@ -15,8 +15,6 @@ def get_db() -> Database:
     if _db is None:
         config = CoreConfig()
         _db = Database(config.database_url)
-        # Connect to database
-        asyncio.create_task(_db.connect())
     return _db
 
 class InitService:

@@ -8,8 +8,10 @@ from ..services.model.service import ModelService
 from ..database import get_db
 from ..auth import get_current_user
 from ..models import UserPublic
+import logging
 
 router = APIRouter(prefix="/models", tags=["models"])
+logger = logging.getLogger(__name__)
 
 @router.post("/", response_model=ModelCreateResponse)
 async def create_model(
@@ -18,6 +20,7 @@ async def create_model(
     current_user: UserPublic = Depends(get_current_user)
 ):
     """Yeni bir model yapılandırması oluştur"""
+    logger.info(f"[POST /models/] Create model called: request={request}")
     try:
         # Token limiti kontrolü
         if request.token_limit is not None:
@@ -25,16 +28,21 @@ async def create_model(
             max_tokens = request.max_tokens or default_max_tokens
             
             if request.token_limit > max_tokens:
+                logger.error(f"[POST /models/] Token limit error: {request.token_limit} > {max_tokens}")
                 raise HTTPException(
                     status_code=400,
                     detail=f"Token limit ({request.token_limit}) cannot exceed "
                            f"model's maximum token capacity ({max_tokens})"
                 )
         
-        return await model_service.create_model(request)
+        result = await model_service.create_model(request)
+        logger.info(f"[POST /models/] Success: {result}")
+        return result
     except ValueError as e:
+        logger.error(f"[POST /models/] ValueError: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"[POST /models/] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{model_id}", response_model=ModelConfig)
@@ -44,10 +52,17 @@ async def get_model(
     current_user: UserPublic = Depends(get_current_user)
 ):
     """Model yapılandırmasını getir"""
+    logger.info(f"[GET /models/{{model_id}}] Get model called: model_id={model_id}")
     try:
-        return await model_service.get_model(model_id)
+        result = await model_service.get_model(model_id)
+        logger.info(f"[GET /models/{{model_id}}] Success: {result}")
+        return result
     except ValueError as e:
+        logger.error(f"[GET /models/{{model_id}}] ValueError: {e}")
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"[GET /models/{{model_id}}] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/", response_model=List[ModelConfig])
 async def list_models(
@@ -56,12 +71,15 @@ async def list_models(
     active_only: bool = True
 ):
     """Tüm modelleri listele"""
+    logger.info(f"[GET /models/] List models called: active_only={active_only}")
     try:
         models = await model_service.list_models()
         if active_only:
             models = [m for m in models if m.get("is_active", True)]
+        logger.info(f"[GET /models/] Success: {len(models)} models returned")
         return models
     except Exception as e:
+        logger.error(f"[GET /models/] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/{model_id}", response_model=ModelConfig)
@@ -72,6 +90,7 @@ async def update_model(
     current_user: UserPublic = Depends(get_current_user)
 ):
     """Model yapılandırmasını güncelle"""
+    logger.info(f"[PATCH /models/{{model_id}}] Update model called: model_id={model_id}, update_data={update_data}")
     try:
         # Token limiti kontrolü
         if update_data.token_limit is not None:
@@ -79,16 +98,21 @@ async def update_model(
             max_tokens = update_data.max_tokens or model.get("max_tokens")
             
             if update_data.token_limit > max_tokens:
+                logger.error(f"[PATCH /models/{{model_id}}] Token limit error: {update_data.token_limit} > {max_tokens}")
                 raise HTTPException(
                     status_code=400,
                     detail=f"Token limit ({update_data.token_limit}) cannot exceed "
                            f"model's maximum token capacity ({max_tokens})"
                 )
         
-        return await model_service.update_model(model_id, update_data.dict(exclude_unset=True))
+        result = await model_service.update_model(model_id, update_data.dict(exclude_unset=True))
+        logger.info(f"[PATCH /models/{{model_id}}] Success: {result}")
+        return result
     except ValueError as e:
+        logger.error(f"[PATCH /models/{{model_id}}] ValueError: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"[PATCH /models/{{model_id}}] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{model_id}")
@@ -98,9 +122,14 @@ async def delete_model(
     current_user: UserPublic = Depends(get_current_user)
 ):
     """Model yapılandırmasını sil"""
+    logger.info(f"[DELETE /models/{{model_id}}] Delete model called: model_id={model_id}")
     try:
-        return await model_service.delete_model(model_id)
+        result = await model_service.delete_model(model_id)
+        logger.info(f"[DELETE /models/{{model_id}}] Success: {result}")
+        return result
     except ValueError as e:
+        logger.error(f"[DELETE /models/{{model_id}}] ValueError: {e}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.error(f"[DELETE /models/{{model_id}}] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e)) 

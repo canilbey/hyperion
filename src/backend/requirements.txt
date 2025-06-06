@@ -20,3 +20,6 @@ bcrypt
 pyjwt
 requests>=2.31.0
 tiktoken>=0.5.1
+sentence-transformers
+pymilvus
+PyPDF2>=3.0.0

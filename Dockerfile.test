@@ -3,10 +3,10 @@ WORKDIR /app
 COPY src/backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY src /app/src
-COPY src/backend/tests /app/tests
+COPY tests /app/tests
 
-# Set Python path to include src directory
-ENV PYTHONPATH="${PYTHONPATH}:/app"
+# Set Python path to include src and root directory
+ENV PYTHONPATH="${PYTHONPATH}:/app:/app/src"
 
 # Command to run tests
 CMD ["pytest", "tests/", "-v"]

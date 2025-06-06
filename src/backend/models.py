@@ -143,3 +143,9 @@ class ChatSession(BaseModel):
     id: UUID
     model_id: str
     temperature: float = Field(default=0.7)
+
+class TextChunk(BaseModel):
+    file_id: str
+    chunk_index: int
+    text: str
+    metadata: Optional[dict] = None
