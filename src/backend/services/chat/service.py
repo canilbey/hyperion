@@ -10,6 +10,8 @@ from .context_manager import ContextManager, ContextSettings, ContextWindow
 from .context_config import MODEL_CONTEXT_WINDOWS
 from .context_storage import ContextStorageService
 from datetime import datetime
+from backend.services.rag_service import RagService
+from fastapi import HTTPException
 
 class UUIDEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -33,6 +35,9 @@ class ChatService:
         self.redis_pool = redis_pool
         self.logger = logging.getLogger(__name__)
         self.context_managers = {}  # Model bazlı context manager'lar
+        
+        # RAG service'i initialize ediyorum
+        self.rag_service = RagService()
 
     def _get_context_manager(self, model_id: str) -> ContextManager:
         """Model için context manager'ı döndürür veya oluşturur"""
@@ -54,6 +59,40 @@ class ChatService:
             )
             
         return self.context_managers[model_id]
+
+    async def get_rag_context(self, query: str) -> Optional[str]:
+        """RAG context'i alır ve sistem prompt'u olarak formatlar"""
+        try:
+            self.logger.info(f"RAG context retrieval started for query: {query[:100]}...")
+            
+            # Vector search ile ilgili chunk'ları bul
+            context_chunks = await self.rag_service.retrieve_context(query, top_k=5)
+            
+            if context_chunks:
+                # Context'i sistem prompt'una dönüştür
+                context_texts = []
+                for chunk in context_chunks:
+                    metadata = chunk.get("metadata", "")
+                    if metadata:
+                        context_texts.append(metadata)
+                
+                if context_texts:
+                    context_text = "\n".join(context_texts)
+                    rag_prompt = f"""Aşağıdaki bilgileri kullanarak kullanıcının sorusunu yanıtla. Bu bilgiler kullanıcının daha önce yüklediği belgelerden geliyor:
+
+{context_text}
+
+Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla."""
+                    
+                    self.logger.info(f"RAG context retrieved: {len(context_chunks)} chunks, {len(context_text)} chars")
+                    return rag_prompt
+            
+            self.logger.info("No relevant RAG context found")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"RAG context retrieval failed: {e}", exc_info=True)
+            return None
 
     async def process_chat_request(
         self,
@@ -281,7 +320,7 @@ class ChatService:
             self.logger.error(f"Error invalidating cache: {str(e)}")
 
     async def call_model_api(self, session, messages, custom_system_prompt=None):
-        """Gerçek model API çağrısı yapar."""
+        """Gerçek model API çağrısı yapar. RAG entegrasyonu ile."""
         model_id = getattr(session, 'model_id', None)
         self.logger.info(f"call_model_api: model_id={model_id}")
         model_config = await self._get_cached_model_config(model_id=model_id)
@@ -289,8 +328,46 @@ class ChatService:
         model = model_config["model"]
         self.logger.info(f"call_model_api: model_config={model_config}")
         self.logger.info(f"call_model_api: api_key={api_key}")
+        
+        # RAG entegrasyonu: Son kullanıcı mesajını al ve RAG context'i oluştur
+        user_message = None
+        for msg in reversed(messages):
+            if hasattr(msg, 'role') and msg.role == "user":
+                user_message = msg
+                break
+            elif isinstance(msg, dict) and msg.get('role') == "user":
+                user_message = msg
+                break
+        
+        # RAG context'i ekle
+        if user_message:
+            query = user_message.content if hasattr(user_message, 'content') else user_message.get('content', '')
+            rag_context = await self.get_rag_context(query)
+            
+            if rag_context:
+                self.logger.info("RAG context added to system prompt")
+                # Sistem mesajı olarak RAG context'i ekle
+                rag_system_message = {
+                    "role": "system", 
+                    "content": rag_context
+                }
+                # Mesajları kopyala ve başına sistem mesajını ekle
+                messages_with_rag = [rag_system_message] + list(messages)
+            else:
+                self.logger.info("No RAG context found, proceeding without enhancement")
+                messages_with_rag = messages
+        else:
+            self.logger.warning("No user message found for RAG context")
+            messages_with_rag = messages
+        
+        # Custom system prompt'u da ekle (varsa)
+        if custom_system_prompt:
+            custom_sys_message = {"role": "system", "content": custom_system_prompt}
+            messages_with_rag = [custom_sys_message] + list(messages_with_rag)
+        
         # Mesajları serializable hale getir
-        messages_dict = self._serialize_messages_for_llm(messages)
+        messages_dict = self._serialize_messages_for_llm(messages_with_rag)
+        
         if model_config["provider"] == "openrouter":
             return await self._call_openrouter_api(messages_dict, model, api_key)
         raise NotImplementedError(f"Provider {model_config['provider']} not implemented.")

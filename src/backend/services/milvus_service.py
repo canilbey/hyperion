@@ -37,16 +37,46 @@ class MilvusService:
 
     def insert_embedding(self, embedding: List[float], metadata: str):
         self._connect_and_init()
-        self._collection.insert([None, embedding, metadata])
+        # Milvus float_vector field requires numpy array
+        import numpy as np
+        
+        # Convert to numpy array regardless of input type
+        if hasattr(embedding, 'tolist'):
+            # If it's a tensor, convert to list first, then numpy
+            embedding_list = embedding.tolist()
+        else:
+            embedding_list = list(embedding)
+            
+        # Create numpy array with explicit float32 dtype
+        embedding_array = np.array(embedding_list, dtype=np.float32)
+        
+        # Milvus insert format: [values] not {"field": [values]}
+        data = [
+            [embedding_array],  # embedding field
+            [metadata]          # metadata field
+        ]
+        self._collection.insert(data)
 
     def search(self, query_embedding: List[float], top_k: int = 5, filter_expr: Optional[str] = None):
         self._connect_and_init()
+        
+        # Convert query embedding to proper format (same as insert_embedding)
+        if hasattr(query_embedding, 'tolist'):
+            # If it's a tensor, convert to list first, then numpy
+            embedding_list = query_embedding.tolist()
+        else:
+            embedding_list = list(query_embedding)
+            
+        # Create numpy array with explicit float32 dtype
+        embedding_array = np.array(embedding_list, dtype=np.float32)
+        
         search_params = {"metric_type": "L2", "params": {"nprobe": 10}}
         results = self._collection.search(
-            data=[query_embedding],
+            data=[embedding_array],  # Use converted numpy array
             anns_field="embedding",
             param=search_params,
             limit=top_k,
-            expr=filter_expr
+            expr=filter_expr,
+            output_fields=["metadata"]  # Metadata field'ını da döndür
         )
         return results 

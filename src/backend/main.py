@@ -120,16 +120,39 @@ async def upload_file(file: UploadFile = File(...)):
     logger.info(f"[POST /upload] File upload requested: filename={file.filename}")
     try:
         from backend.services.file.service import FileService
+        from backend.services.embedding_service import EmbeddingService
+        from backend.services.milvus_service import MilvusService
+        
         file_service = FileService(file_config)
+        embedding_service = EmbeddingService()
+        milvus_service = MilvusService()
+        
         # Dosyayı kaydet ve parse et
         result = await file_service.handle_file_upload(file, core_config.upload_dir)
         # Dosya id'sini ve content_type'ı al
         file_id = result.file_id
         file_path = os.path.join(core_config.upload_dir, file_id)
         text_chunks = file_service.parse_file(file_id, file_path, result.content_type)
+        
         # Parse edilen chunk'ları veritabanına kaydet
         await file_service.save_text_chunks(init_service.database, text_chunks)
-        logger.info(f"[POST /upload] File uploaded and parsed successfully: {result}")
+        logger.info(f"[POST /upload] Saved {len(text_chunks)} text chunks to database")
+        
+        # YENİ: Embedding generation ve vector storage
+        if text_chunks:
+            logger.info(f"[POST /upload] Starting embedding generation for {len(text_chunks)} chunks")
+            chunk_texts = [chunk.text for chunk in text_chunks]
+            embeddings = embedding_service.embed(chunk_texts)
+            
+            # Her chunk için embedding'i Milvus'a kaydet
+            for i, (chunk, embedding) in enumerate(zip(text_chunks, embeddings)):
+                metadata = f"file:{file_id}:chunk:{chunk.chunk_index}:filename:{result.filename}"
+                # MilvusService will handle tensor to list conversion
+                milvus_service.insert_embedding(embedding, metadata)
+            
+            logger.info(f"[POST /upload] Generated and stored {len(embeddings)} embeddings in vector DB")
+        
+        logger.info(f"[POST /upload] File uploaded, parsed and embedded successfully: {result}")
         return result
     except Exception as e:
         logger.error(f"[POST /upload] File upload failed: {str(e)}")

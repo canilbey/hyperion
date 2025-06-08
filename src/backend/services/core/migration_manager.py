@@ -65,7 +65,7 @@ class MigrationManager:
 class ServiceMigrationManager:
     def __init__(self, database: Database):
         self.database = database
-        self.services = ["auth", "chat", "model"]  # Add new services here
+        self.services = ["auth", "chat", "model", "file"]  # Add new services here
         
     async def run_all_migrations(self) -> None:
         """Run migrations for all services"""

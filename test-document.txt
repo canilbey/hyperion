@@ -1,0 +1,10 @@
+Hyperion RAG Platform Kullanım Kılavuzu
+
+Bu platform aşağıdaki ana özelliklere sahiptir:
+
+1. Dosya Yükleme: PDF ve TXT formatında dosyalar yüklenebilir
+2. Otomatik Embedding: Yüklenen dosyalar otomatik olarak vector'lara dönüştürülür  
+3. Akıllı Arama: Chat sırasında ilgili belgelerden bilgi çekilir
+4. Multi-Model Desteği: OpenRouter, OpenAI ve Anthropic desteklenir
+
+RAG sistemi sayesinde kullanıcılar kendi belgelerine dayanarak sorular sorabilir ve doğru yanıtlar alabilir. 

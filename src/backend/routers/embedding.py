@@ -124,10 +124,10 @@ def search_embeddings(request: SearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post('/rag/retrieve', response_model=RagRetrieveResponse)
-def rag_retrieve(request: RagRetrieveRequest):
+async def rag_retrieve(request: RagRetrieveRequest):
     logger.info(f"[POST /embedding/rag/retrieve] Called with query: {request.query}, top_k: {request.top_k}")
     try:
-        context_chunks = rag_service.retrieve_context(request.query, top_k=request.top_k)
+        context_chunks = await rag_service.retrieve_context(request.query, top_k=request.top_k)
         prompt = rag_service.assemble_prompt(request.query, context_chunks)
         search_results = [SearchResult(id=chunk['id'], score=chunk['score'], metadata=chunk['metadata']) for chunk in context_chunks]
         logger.info(f"[POST /embedding/rag/retrieve] Success: {len(search_results)} context chunks")
@@ -137,10 +137,10 @@ def rag_retrieve(request: RagRetrieveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post('/rag/complete', response_model=RagCompleteResponse)
-def rag_complete(request: RagCompleteRequest):
+async def rag_complete(request: RagCompleteRequest):
     logger.info(f"[POST /embedding/rag/complete] Called with query: {request.query}, top_k: {request.top_k}, max_tokens: {request.max_tokens}, temperature: {request.temperature}")
     try:
-        context_chunks = rag_service.retrieve_context(request.query, top_k=request.top_k)
+        context_chunks = await rag_service.retrieve_context(request.query, top_k=request.top_k)
         prompt = rag_service.assemble_prompt(request.query, context_chunks)
         answer = llm_service.generate(prompt, max_tokens=request.max_tokens, temperature=request.temperature)
         search_results = [SearchResult(id=chunk['id'], score=chunk['score'], metadata=chunk['metadata']) for chunk in context_chunks]

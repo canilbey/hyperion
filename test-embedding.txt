@@ -1,0 +1,1 @@
+Hyperion is a modular and scalable RAG platform. Users can upload documents and receive contextually-aware responses powered by LLMs. The system includes file parsing, embedding generation, and vector storage capabilities.
