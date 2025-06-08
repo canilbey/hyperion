@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS update_chat_contexts_updated_at ON chat_contexts; 

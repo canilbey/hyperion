@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS update_chat_contexts_updated_at(); 

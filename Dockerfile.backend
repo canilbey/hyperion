@@ -1,9 +1,14 @@
 FROM python:3.10-slim
 WORKDIR /app
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app/src
+ENV OPENROUTER_API_KEY=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
 
-COPY src/backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY src/backend /app
+# Install runtime and test dependencies
+COPY src/backend/requirements.txt src/backend/test-requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r test-requirements.txt
 
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Copy application code, preserving the 'src' directory structure
+COPY src /app/src
+
+# Default production command (updated path)
+CMD ["python", "-m", "uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

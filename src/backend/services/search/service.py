@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict
-from models import SearchRequest
+from backend.models import SearchRequest
 from .config import SearchConfig
 
 class SearchService:
