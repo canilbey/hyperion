@@ -1,0 +1,144 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src/backend:/app/backend
+      - uploads:/uploads
+    environment:
+      - CORE_DATABASE_URL=postgresql://hyperion:hyperion123@db:5432/hyperion
+      - CORE_REDIS_URL=redis://redis:6379
+      - CORE_UPLOAD_DIR=/uploads
+      - CORE_OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - CORE_OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-3.5-turbo}
+      - COOKIE_SECURE=false
+      - COOKIE_DOMAIN=localhost
+      - JWT_SECRET=${JWT_SECRET:-changeme-super-secret}
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRY_MINUTES=30
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+    networks:
+      - hyperion-network
+
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.frontend
+  #   ports:
+  #     - "3000:80"
+  #   depends_on:
+  #     backend:
+  #       condition: service_healthy
+  #   networks:
+  #     - hyperion-network
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=hyperion
+      - POSTGRES_PASSWORD=hyperion123
+      - POSTGRES_DB=hyperion
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hyperion -d hyperion"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - hyperion-network
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - hyperion-network
+
+  milvus-etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: milvus-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: ["etcd", "--listen-client-urls=http://0.0.0.0:2379", "--advertise-client-urls=http://0.0.0.0:2379", "--listen-peer-urls=http://0.0.0.0:2380", "--initial-advertise-peer-urls=http://0.0.0.0:2380", "--initial-cluster=default=http://0.0.0.0:2380"]
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd-data:/etcd
+    networks:
+      - hyperion-network
+
+  milvus-minio:
+    image: minio/minio:RELEASE.2024-04-18T19-09-19Z
+    container_name: milvus-minio
+    environment:
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - hyperion-network
+
+  milvus:
+    image: milvusdb/milvus:v2.3.9
+    container_name: milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      - ETCD_ENDPOINTS=milvus-etcd:2379
+      - MINIO_ADDRESS=milvus-minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MILVUS_LOG_LEVEL=info
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - milvus-etcd
+      - milvus-minio
+    volumes:
+      - milvus-data:/var/lib/milvus
+    networks:
+      - hyperion-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:
+  etcd-data:
+  minio-data:
+  milvus-data:
+
+networks:
+  hyperion-network:
+    driver: bridge

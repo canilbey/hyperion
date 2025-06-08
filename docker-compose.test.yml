@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      - TESTING=true
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/src
+      - CORE_DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - CORE_REDIS_URL=redis://redis:6379
+      - JWT_SECRET=test-secret-key
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRY_MINUTES=30
+    volumes:
+      - ./tests:/app/tests
+      - ./src:/app/src
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    command: >
+      bash -c "pip install -r src/backend/test-requirements.txt &&
+      pytest tests/ -v --cov=src/backend --cov-report=term-missing"
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-hyperion}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-hyperion123}
+      - POSTGRES_DB=${POSTGRES_DB:-hyperion_test}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hyperion} -d ${POSTGRES_DB:-hyperion_test}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - DB_HOST=db
+      - DB_PORT=5432
+      - POSTGRES_USER=hyperion
+      - POSTGRES_PASSWORD=hyperion123
+      - POSTGRES_DB=hyperion_test
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - API_KEY=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
+    depends_on:
+      backend:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./tests:/app/tests
+    command: ["pytest", "tests/", "-v", "--maxfail=1", "--disable-warnings"]

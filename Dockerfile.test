@@ -1,0 +1,12 @@
+FROM python:3.10-slim
+WORKDIR /app
+COPY src/backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src /app/src
+COPY tests /app/tests
+
+# Set Python path to include src and root directory
+ENV PYTHONPATH="${PYTHONPATH}:/app:/app/src"
+
+# Command to run tests
+CMD ["pytest", "tests/", "-v"]
