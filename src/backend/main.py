@@ -17,6 +17,7 @@ from backend.models import (
 )
 from backend.services.auth import router as auth_router
 from backend.routers import embedding as embedding_router
+from backend.services.file.service import FileService
 
 # Configure logging
 logging.basicConfig(
@@ -327,6 +328,27 @@ async def delete_model(model_id: str):
     except Exception as e:
         logger.error(f"[DELETE /model/{model_id}] Error: {e}")
         raise
+
+@app.get("/files", response_model=list[FileUploadResponse])
+async def list_files():
+    """Upload klasöründeki dosyaları listeler."""
+    try:
+        file_service = FileService(file_config)
+        files = []
+        for file_id in os.listdir(core_config.upload_dir):
+            file_path = os.path.join(core_config.upload_dir, file_id)
+            if os.path.isfile(file_path):
+                stat = os.stat(file_path)
+                files.append(FileUploadResponse(
+                    file_id=file_id,
+                    filename=file_id,  # Orijinal isim DB'de tutulmuyorsa file_id döneriz
+                    content_type="application/octet-stream",  # İçerik tipi bilinmiyorsa generic
+                    size=stat.st_size
+                ))
+        return files
+    except Exception as e:
+        logger.error(f"[GET /files] Error: {e}")
+        raise HTTPException(status_code=500, detail="Dosya listesi alınamadı")
 
 if __name__ == "__main__":
     import uvicorn

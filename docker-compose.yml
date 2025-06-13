@@ -33,17 +33,18 @@ services:
     networks:
       - hyperion-network
 
-  # frontend:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.frontend
-  #   ports:
-  #     - "3000:80"
-  #   depends_on:
-  #     backend:
-  #       condition: service_healthy
-  #   networks:
-  #     - hyperion-network
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:80"
+    environment:
+      - REACT_APP_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - hyperion-network
 
   db:
     image: postgres:15

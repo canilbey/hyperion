@@ -1,3 +1,9 @@
+# API Referansı
+
+Tüm API uç noktaları, açıklamaları ve örnek kullanımlar için lütfen [docs/api-documentation.md](../docs/api-documentation.md) dosyasına başvurun.
+
+---
+
 # Tech Context
 
 ## Temel Teknolojiler

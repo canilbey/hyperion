@@ -1,8 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatList from "./components/ChatList";
 import ModelManager from "./components/ModelManager";
 import FileManager from "./components/FileManager";
+import { getModels } from "./services/modelService";
+import { getFiles } from "./services/fileService";
 
 const PROFILE_MENU = [
   { key: "profile", label: "Profile" },
@@ -65,55 +67,7 @@ function MainContent({ page, chats, models, files, onModelUpdate, onModelDelete,
 
   // Model alanı
   if (page === "models") {
-    return (
-      <div className="flex gap-8 p-8">
-        <ul className="flex flex-col gap-3 w-80">
-          {models.map(model => (
-            <li key={model.id}>
-              <div className={`flex items-center justify-between px-5 py-4 rounded-2xl cursor-pointer transition bg-blue-grey-5 hover:bg-blue-grey-4 text-white ${selectedModel && selectedModel.id === model.id ? 'ring-2 ring-blue-grey-3' : ''}`}
-                onClick={() => setSelectedModel(model)}>
-                <span>{model.name}</span>
-                <button
-                  className="material-icons text-red-300 hover:text-red-500 text-2xl bg-transparent border-none p-0 ml-2"
-                  onClick={e => { e.stopPropagation(); onModelDelete && onModelDelete(model.id); }}
-                  aria-label="Sil"
-                >
-                  delete
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        {/* Detay paneli */}
-        {selectedModel && (
-          <div className="flex-1 max-w-lg bg-blue-grey-5 rounded-2xl p-8 shadow-xl text-white">
-            <div className="mb-4 text-lg font-bold">Model Konfigürasyonu</div>
-            <div className="space-y-4">
-              <div>
-                <label className="block mb-1">Model Adı</label>
-                <input className="w-full bg-blue-grey-4 rounded px-4 py-2 text-white" value={selectedModel.name} onChange={e => setModelEdit({ ...selectedModel, name: e.target.value })} />
-              </div>
-              <div>
-                <label className="block mb-1">Model</label>
-                <input className="w-full bg-blue-grey-4 rounded px-4 py-2 text-white" value={selectedModel.model || ''} onChange={e => setModelEdit({ ...selectedModel, model: e.target.value })} />
-              </div>
-              <div>
-                <label className="block mb-1">API Key</label>
-                <input className="w-full bg-blue-grey-4 rounded px-4 py-2 text-white" value={selectedModel.apiKey || ''} onChange={e => setModelEdit({ ...selectedModel, apiKey: e.target.value })} />
-              </div>
-              <div>
-                <label className="block mb-1">System Prompt</label>
-                <textarea className="w-full bg-blue-grey-4 rounded px-4 py-2 text-white" value={selectedModel.systemPrompt || ''} onChange={e => setModelEdit({ ...selectedModel, systemPrompt: e.target.value })} />
-              </div>
-              <div className="flex gap-3 mt-4">
-                <button className="bg-blue-grey-3 text-white px-6 py-2 rounded-xl hover:bg-blue-grey-2 transition font-bold">Kaydet</button>
-                <button className="bg-blue-grey-4 text-white px-6 py-2 rounded-xl hover:bg-blue-grey-3 transition" onClick={() => setSelectedModel(null)}>Kapat</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
+    return <ModelManager />;
   }
 
   // File alanı
@@ -166,19 +120,17 @@ export default function App() {
   const [mainPage, setMainPage] = useState("chats");
   const [profileOpen, setProfileOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  // Mock data
-  const chats = [
-    { id: 1, title: "GPT-4 ile Sohbet" },
-    { id: 2, title: "Toplantı Notları" },
-  ];
-  const models = [
-    { id: 1, name: "GPT-4" },
-    { id: 2, name: "GPT-3.5" },
-  ];
-  const files = [
-    { id: 1, name: "Rapor Analizi.pdf" },
-    { id: 2, name: "Toplantı Özeti.docx" },
-  ];
+  const [models, setModels] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [modelError, setModelError] = useState(null);
+  const [fileError, setFileError] = useState(null);
+  const [chats, setChats] = useState([]);
+  const [openModelId, setOpenModelId] = useState(null);
+
+  useEffect(() => {
+    getModels().then(setModels).catch(() => setModelError("Modeller alınamadı"));
+    getFiles().then(setFiles).catch(() => setFileError("Dosyalar alınamadı"));
+  }, []);
 
   // Sidebar alt içerik
   let contentList = null;
@@ -204,21 +156,35 @@ export default function App() {
   }
   if (selectedNav === "models") {
     contentList = (
-      <div className="mb-2 flex items-center justify-between">
-        <span className="font-bold text-md">Modeller</span>
-        <button
-          className="w-8 h-8 flex items-center justify-center rounded bg-blue-grey-5 text-white hover:bg-blue-grey-4 transition text-xl p-0"
-          onClick={() => {/* model ekleme işlemi */}}
-          aria-label="Model Ekle"
-        >
-          <span className="material-icons text-lg">add</span>
-        </button>
-      </div>
+      <>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="font-bold text-md">Modeller</span>
+          <button
+            className="w-8 h-8 flex items-center justify-center rounded bg-blue-grey-5 text-white hover:bg-blue-grey-4 transition text-xl p-0"
+            onClick={() => setOpenModelId("__new__")}
+            aria-label="Model Ekle"
+          >
+            <span className="material-icons text-lg">add</span>
+          </button>
+        </div>
+        {modelError && <div className="text-red-500">{modelError}</div>}
+        <ul className="flex flex-col gap-1 mb-4">
+          {models.map(model => (
+            <li key={model.model_id}>
+              <button
+                className={`w-full text-left px-3 py-2 rounded transition font-medium ${openModelId === model.model_id ? 'bg-blue-grey-3 text-white' : 'bg-blue-grey-5 text-white hover:bg-blue-grey-4'}`}
+                onClick={() => { setMainPage("models"); setOpenModelId(model.model_id); }}
+              >
+                {model.model_name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </>
     );
     contentList = (
       <>
         {contentList}
-        <ModelManager models={models} selectedId={null} onSelect={()=>{}} onAdd={()=>{}} onEdit={()=>{}} onDelete={()=>{}} />
       </>
     );
   }
@@ -238,6 +204,7 @@ export default function App() {
     contentList = (
       <>
         {contentList}
+        {fileError && <div className="text-red-500">{fileError}</div>}
         <FileManager files={files} selectedId={null} onSelect={()=>{}} onAdd={()=>{}} onDelete={()=>{}} onEdit={()=>{}} />
       </>
     );
@@ -277,7 +244,11 @@ export default function App() {
         </div>
         {/* Ana içerik alanı */}
         <div className="flex-1 overflow-auto">
-          <MainContent page={mainPage} chats={chats} models={models} files={files} />
+          {selectedNav === "models" ? (
+            <ModelManager openModelId={openModelId} onOpenModel={setOpenModelId} />
+          ) : (
+            <MainContent page={mainPage} chats={chats} models={models} files={files} />
+          )}
         </div>
       </main>
     </div>
