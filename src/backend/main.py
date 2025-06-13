@@ -18,6 +18,7 @@ from backend.models import (
 from backend.services.auth import router as auth_router
 from backend.routers import embedding as embedding_router
 from backend.services.file.service import FileService
+from backend.services.milvus_service import MilvusService
 
 # Configure logging
 logging.basicConfig(
@@ -128,9 +129,8 @@ async def upload_file(file: UploadFile = File(...)):
         embedding_service = EmbeddingService()
         milvus_service = MilvusService()
         
-        # Dosyayı kaydet ve parse et
-        result = await file_service.handle_file_upload(file, core_config.upload_dir)
-        # Dosya id'sini ve content_type'ı al
+        # Dosyayı kaydet ve parse et, metadata DB'ye yazılır
+        result = await file_service.handle_file_upload(file, core_config.upload_dir, init_service.database)
         file_id = result.file_id
         file_path = os.path.join(core_config.upload_dir, file_id)
         text_chunks = file_service.parse_file(file_id, file_path, result.content_type)
@@ -139,20 +139,15 @@ async def upload_file(file: UploadFile = File(...)):
         await file_service.save_text_chunks(init_service.database, text_chunks)
         logger.info(f"[POST /upload] Saved {len(text_chunks)} text chunks to database")
         
-        # YENİ: Embedding generation ve vector storage
+        # Embedding generation ve vector storage
         if text_chunks:
             logger.info(f"[POST /upload] Starting embedding generation for {len(text_chunks)} chunks")
             chunk_texts = [chunk.text for chunk in text_chunks]
             embeddings = embedding_service.embed(chunk_texts)
-            
-            # Her chunk için embedding'i Milvus'a kaydet
             for i, (chunk, embedding) in enumerate(zip(text_chunks, embeddings)):
                 metadata = f"file:{file_id}:chunk:{chunk.chunk_index}:filename:{result.filename}"
-                # MilvusService will handle tensor to list conversion
                 milvus_service.insert_embedding(embedding, metadata)
-            
             logger.info(f"[POST /upload] Generated and stored {len(embeddings)} embeddings in vector DB")
-        
         logger.info(f"[POST /upload] File uploaded, parsed and embedded successfully: {result}")
         return result
     except Exception as e:
@@ -331,24 +326,64 @@ async def delete_model(model_id: str):
 
 @app.get("/files", response_model=list[FileUploadResponse])
 async def list_files():
-    """Upload klasöründeki dosyaları listeler."""
+    """Tüm dosya metadata'larını files tablosundan döner."""
     try:
-        file_service = FileService(file_config)
-        files = []
-        for file_id in os.listdir(core_config.upload_dir):
-            file_path = os.path.join(core_config.upload_dir, file_id)
-            if os.path.isfile(file_path):
-                stat = os.stat(file_path)
-                files.append(FileUploadResponse(
-                    file_id=file_id,
-                    filename=file_id,  # Orijinal isim DB'de tutulmuyorsa file_id döneriz
-                    content_type="application/octet-stream",  # İçerik tipi bilinmiyorsa generic
-                    size=stat.st_size
-                ))
+        query = "SELECT file_id, original_filename, content_type, original_size, num_chunks, chunked_total_size, upload_time, user_id FROM files ORDER BY upload_time DESC"
+        rows = await init_service.database.fetch_all(query)
+        files = [
+            FileUploadResponse(
+                file_id=str(row["file_id"]) if row["file_id"] is not None else None,
+                filename=row["original_filename"],
+                content_type=row["content_type"],
+                size=row["original_size"],
+                num_chunks=row["num_chunks"],
+                chunked_total_size=row["chunked_total_size"],
+                upload_time=row["upload_time"],
+                user_id=str(row["user_id"]) if row["user_id"] is not None else None
+            )
+            for row in rows
+        ]
         return files
     except Exception as e:
         logger.error(f"[GET /files] Error: {e}")
         raise HTTPException(status_code=500, detail="Dosya listesi alınamadı")
+
+@app.delete("/files/{file_id}")
+async def delete_file(file_id: str):
+    """Bir dosyayı tüm ilişkili verilerle birlikte siler (metadata, chunk, vector db)."""
+    try:
+        # 1. Dosya metadata'sını ve orijinal adını al
+        query = "SELECT original_filename FROM files WHERE file_id = :file_id"
+        row = await init_service.database.fetch_one(query, {"file_id": file_id})
+        if not row:
+            raise HTTPException(status_code=404, detail="Dosya bulunamadı")
+        filename = row["original_filename"]
+
+        # 2. Chunk'ları sil
+        await init_service.database.execute("DELETE FROM text_chunks WHERE file_id = :file_id", {"file_id": file_id})
+        # 3. Metadata'yı sil
+        await init_service.database.execute("DELETE FROM files WHERE file_id = :file_id", {"file_id": file_id})
+        # 4. Upload klasöründen dosyayı sil
+        file_path = os.path.join(core_config.upload_dir, file_id)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        # 5. Vector DB'den ilgili embedding'leri sil
+        milvus_service = MilvusService()
+        expr = f"metadata like 'file:{file_id}:%'"
+        milvus_service._connect_and_init()
+        collection = milvus_service._collection
+        # Milvus'ta metadata'ya göre silme
+        ids_to_delete = []
+        results = collection.query(expr, output_fields=["id", "metadata"])
+        for r in results:
+            if r["metadata"].startswith(f"file:{file_id}:"):
+                ids_to_delete.append(r["id"])
+        if ids_to_delete:
+            collection.delete(f"id in [{','.join(map(str, ids_to_delete))}]")
+        return {"status": "deleted", "file_id": file_id, "filename": filename}
+    except Exception as e:
+        logger.error(f"[DELETE /files/{{file_id}}] Error: {e}")
+        raise HTTPException(status_code=500, detail="Dosya silinemedi")
 
 if __name__ == "__main__":
     import uvicorn

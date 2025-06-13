@@ -25,12 +25,14 @@
 - **✅ Message handling** - User/Assistant message flow
 - **✅ Context management** - Chat context tracking
 - **✅ RAG Integration** - Chat'e otomatik RAG context ekleme
+- **🟧 Eksikler:** Chat arayüzü istenen gibi değil ve backend entegrasyonu tam anlamıyla doğru çalışmıyor. Chat silme, chat ismi düzenleme ve chat geçmişi (history) UI'da düzgün çalışmıyor/görünmüyor. Frontend ve backend entegrasyonunda eksikler ve hatalar mevcut. Kullanıcı deneyimi ve işlevsellik açısından chat yönetimi yeniden ele alınmalı.
 
 ### File Processing System  
 - **✅ File upload** - PDF/TXT dosya yükleme
 - **✅ Text chunking** - Belge parsing ve chunk'lara bölme
 - **✅ Database storage** - text_chunks tablosunda saklama
 - **✅ Migration'lar çözüldü** - File servisi migration'ları aktif
+- **✅ File Management Backend-Frontend Entegrasyonu** - Dosya yükleme, listeleme ve silme işlemleri backend ve frontend arasında uçtan uca entegre edildi. Migration, model ve servis güncellemeleri tamamlandı.
 
 ### RAG Pipeline (TAMAMEN TAMAMLANDI) 🎉
 - **✅ Embedding generation** - Sentence transformers entegrasyonu tamamlandı
@@ -68,6 +70,8 @@
 - **🟧 Son Durum:**
     - Docker Compose ile container'lar başlatıldı.
     - Frontend ve backend servisleri çalışıyor ancak entegrasyonda hâlâ problemler mevcut.
+    - File management sistemi teknik olarak çalışıyor, ancak arayüzde UX/UI problemleri mevcut. Sidebar'da sade liste, ana panelde akordiyon detay, silme butonu için uygun ikon ve responsive tasarım gibi iyileştirmeler yapılmalı.
+    - **Chat servisi:** Chat silme, başlık düzenleme ve geçmiş gösterimi UI'da düzgün çalışmıyor/görünmüyor. Chat arayüzü ve backend entegrasyonu öncelikli geliştirme gerektiriyor.
     - Karşılaşılan tipik sorunlar: build hataları (örn. package.json, build script, dist/build farkı), port çakışmaları, API endpoint uyumsuzlukları, bağlantı ve erişim hataları.
     - Çözüm önerileri ve yapılan düzeltmeler memory-bank'te güncelleniyor.
 - **🟧 Yeni Gözlemlenen Problemler ve Öncelikli Geliştirme Adımları:**

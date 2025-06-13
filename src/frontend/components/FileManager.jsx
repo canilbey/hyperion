@@ -61,7 +61,7 @@ function FileDropzone({ onUpload, loading }) {
 
 const FileManager = () => {
   const [files, setFiles] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [openAccordionId, setOpenAccordionId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -97,17 +97,6 @@ const FileManager = () => {
     }
   };
 
-  const handleEdit = async (file) => {
-    const name = prompt("Yeni dosya adı:", file.name);
-    if (!name) return;
-    try {
-      await updateFile(file.id, { ...file, name });
-      fetchFiles();
-    } catch (err) {
-      setError(err.message || "Dosya güncellenemedi");
-    }
-  };
-
   const handleDelete = async (id) => {
     if (!window.confirm("Dosya silinsin mi?")) return;
     try {
@@ -119,38 +108,57 @@ const FileManager = () => {
   };
 
   return (
-    <div>
-      <FileDropzone onUpload={handleUpload} loading={loading} />
-      {error && <div className="text-red-500 mb-2">{error}</div>}
-      <ul className="space-y-3 pl-4">
-        {files.map((file) => (
-          <li key={file.id} className="list-disc text-white relative">
-            <button
-              className={`w-full text-left px-4 py-2 font-medium transition border-none outline-none flex items-center justify-between bg-transparent
-                ${selectedId === file.id ? 'bg-blue-grey-4 text-white' : 'bg-blue-grey-5 text-white hover:bg-blue-grey-4'}
-              `}
-              onClick={() => setSelectedId(file.id)}
-            >
-              <span>{file.name}</span>
-              <span className="relative">
-                <button
-                  className="w-10 h-10 flex items-center justify-center rounded bg-blue-grey-5 text-white hover:bg-blue-grey-3 transition text-2xl ml-2 p-0"
-                  onClick={e => { e.stopPropagation(); }}
-                  aria-label="Aksiyonlar"
-                >
-                  &#8942;
-                </button>
-                <ActionMenu
-                  open={selectedId === file.id}
-                  onEdit={() => handleEdit(file)}
-                  onDelete={() => handleDelete(file.id)}
-                  onClose={() => setSelectedId(null)}
-                />
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+    <div className="flex">
+      {/* Sidebar */}
+      <div className="w-80 p-4 border-r border-blue-grey-4">
+        <FileDropzone onUpload={handleUpload} loading={loading} />
+        {error && <div className="text-red-500 mb-2">{error}</div>}
+        <ul className="space-y-3">
+          {files.length === 0 && <li className="text-blue-grey-2">Hiç dosya yok</li>}
+          {files.map((file) => (
+            <li key={file.file_id || file.id} className="list-disc text-white">
+              <span className="font-bold">{file.filename || file.name}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {/* Main alan - Akordiyon */}
+      <div className="flex-1 p-8">
+        <div className="max-w-2xl mx-auto">
+          <ul className="divide-y divide-blue-grey-4">
+            {files.map((file) => (
+              <li key={file.file_id || file.id}>
+                <div className="flex items-center justify-between py-4 cursor-pointer hover:bg-blue-grey-4 rounded-xl px-4 transition"
+                  onClick={() => setOpenAccordionId(openAccordionId === (file.file_id || file.id) ? null : (file.file_id || file.id))}>
+                  <span className="font-bold text-white">{file.filename || file.name}</span>
+                  <button
+                    className="material-icons text-red-300 hover:text-red-500 text-2xl bg-transparent border-none p-0 ml-2"
+                    onClick={e => { e.stopPropagation(); handleDelete(file.file_id || file.id); }}
+                    aria-label="Sil"
+                  >
+                    delete
+                  </button>
+                </div>
+                {openAccordionId === (file.file_id || file.id) && (
+                  <div className="bg-blue-grey-5 rounded-xl p-6 mt-2 mb-4 text-white shadow">
+                    <div className="mb-2 text-lg font-bold">Dosya Metadata</div>
+                    <div className="space-y-1">
+                      <div><b>ID:</b> {file.file_id}</div>
+                      <div><b>Dosya Adı:</b> {file.filename}</div>
+                      <div><b>İçerik Tipi:</b> {file.content_type}</div>
+                      <div><b>Orijinal Boyut (byte):</b> {file.size}</div>
+                      <div><b>Chunk Sayısı:</b> {file.num_chunks}</div>
+                      <div><b>Chunk'lanmış Toplam Boyut (byte):</b> {file.chunked_total_size}</div>
+                      <div><b>Yüklenme Tarihi:</b> {file.upload_time}</div>
+                      <div><b>Kullanıcı ID:</b> {file.user_id || '-'}</div>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 };

@@ -5,6 +5,7 @@ import ModelManager from "./components/ModelManager";
 import FileManager from "./components/FileManager";
 import { getModels } from "./services/modelService";
 import { getFiles } from "./services/fileService";
+import ChatContainer from "./components/ChatContainer";
 
 const PROFILE_MENU = [
   { key: "profile", label: "Profile" },
@@ -28,41 +29,16 @@ function ProfileDropdown({ open, onSelect }) {
   );
 }
 
-function MainContent({ page, chats, models, files, onModelUpdate, onModelDelete, onFileDelete }) {
-  const [selectedModel, setSelectedModel] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [modelEdit, setModelEdit] = useState(null);
-
+function MainContent({ page, selectedChatId, setSelectedChatId, models, selectedModel, setSelectedModel }) {
   // Chat alanı (ChatGPT tarzı)
   if (page === "chats") {
-    return (
-      <div className="flex flex-col h-full max-w-3xl mx-auto py-8">
-        <div className="flex-1 overflow-y-auto space-y-6 pb-8">
-          {/* Örnek mesajlar */}
-          <div className="flex justify-end">
-            <div className="bg-blue-grey-3 text-white rounded-2xl px-5 py-3 max-w-lg shadow">Merhaba, boğaz şişkinliğine ne iyi gelir?</div>
-          </div>
-          <div className="flex justify-start">
-            <div className="bg-blue-grey-4 text-white rounded-2xl px-5 py-3 max-w-lg shadow">
-              Boğaz şişkinliği genellikle enfeksiyon, tahriş veya alerji gibi nedenlerden kaynaklanır...<br/>
-              <ul className="list-disc pl-6 mt-2">
-                <li><b>Evde Uygulanabilecek Destekleyici Yöntemler</b></li>
-                <li>Tuzlu su gargarası</li>
-                <li>Ilık sıvılar tüketmek</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        <form className="flex gap-3 mt-auto bg-blue-grey-5 rounded-2xl p-4 shadow-xl">
-          <input
-            className="flex-1 bg-blue-grey-4 text-white rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-grey-3"
-            type="text"
-            placeholder="Herhangi bir şey sor..."
-          />
-          <button type="submit" className="bg-blue-grey-3 text-white px-6 py-3 rounded-xl hover:bg-blue-grey-2 transition font-bold">Gönder</button>
-        </form>
-      </div>
-    );
+    return <ChatContainer
+      selectedChatId={selectedChatId}
+      setSelectedChatId={setSelectedChatId}
+      models={models}
+      selectedModel={selectedModel}
+      setSelectedModel={setSelectedModel}
+    />;
   }
 
   // Model alanı
@@ -76,13 +52,13 @@ function MainContent({ page, chats, models, files, onModelUpdate, onModelDelete,
       <div className="flex gap-8 p-8">
         <ul className="flex flex-col gap-3 w-80">
           {files.map(file => (
-            <li key={file.id}>
-              <div className={`flex items-center justify-between px-5 py-4 rounded-2xl cursor-pointer transition bg-blue-grey-5 hover:bg-blue-grey-4 text-white ${selectedFile && selectedFile.id === file.id ? 'ring-2 ring-blue-grey-3' : ''}`}
+            <li key={file.file_id}>
+              <div className={`flex items-center justify-between px-5 py-4 rounded-2xl cursor-pointer transition bg-blue-grey-5 hover:bg-blue-grey-4 text-white ${selectedFile && selectedFile.file_id === file.file_id ? 'ring-2 ring-blue-grey-3' : ''}`}
                 onClick={() => setSelectedFile(file)}>
-                <span>{file.name}</span>
+                <span>{file.filename}</span>
                 <button
                   className="material-icons text-red-300 hover:text-red-500 text-2xl bg-transparent border-none p-0 ml-2"
-                  onClick={e => { e.stopPropagation(); onFileDelete && onFileDelete(file.id); }}
+                  onClick={e => { e.stopPropagation(); onFileDelete && onFileDelete(file.file_id); }}
                   aria-label="Sil"
                 >
                   delete
@@ -95,12 +71,15 @@ function MainContent({ page, chats, models, files, onModelUpdate, onModelDelete,
         {selectedFile && (
           <div className="flex-1 max-w-lg bg-blue-grey-5 rounded-2xl p-8 shadow-xl text-white">
             <div className="mb-4 text-lg font-bold">Dosya Metadata</div>
-            <div className="space-y-4">
-              <div><b>Dosya Adı:</b> {selectedFile.name}</div>
-              <div><b>Yüklenme Tarihi:</b> 2024-06-09</div>
-              <div><b>Dosya Boyutu:</b> 1.2 MB</div>
-              <div><b>Chunk Sayısı:</b> 12</div>
-              <div><b>Chunking Metodu:</b> Otomatik</div>
+            <div className="space-y-2">
+              <div><b>ID:</b> {selectedFile.file_id}</div>
+              <div><b>Dosya Adı:</b> {selectedFile.filename}</div>
+              <div><b>İçerik Tipi:</b> {selectedFile.content_type}</div>
+              <div><b>Orijinal Boyut (byte):</b> {selectedFile.size}</div>
+              <div><b>Chunk Sayısı:</b> {selectedFile.num_chunks}</div>
+              <div><b>Chunk'lanmış Toplam Boyut (byte):</b> {selectedFile.chunked_total_size}</div>
+              <div><b>Yüklenme Tarihi:</b> {selectedFile.upload_time}</div>
+              <div><b>Kullanıcı ID:</b> {selectedFile.user_id || '-'}</div>
               <div className="flex gap-3 mt-4">
                 <button className="bg-blue-grey-4 text-white px-6 py-2 rounded-xl hover:bg-blue-grey-3 transition" onClick={() => setSelectedFile(null)}>Kapat</button>
               </div>
@@ -126,6 +105,8 @@ export default function App() {
   const [fileError, setFileError] = useState(null);
   const [chats, setChats] = useState([]);
   const [openModelId, setOpenModelId] = useState(null);
+  const [selectedChatId, setSelectedChatId] = useState(null);
+  const [selectedModel, setSelectedModel] = useState("");
 
   useEffect(() => {
     getModels().then(setModels).catch(() => setModelError("Modeller alınamadı"));
@@ -136,21 +117,22 @@ export default function App() {
   let contentList = null;
   if (selectedNav === "chats") {
     contentList = (
-      <div className="mb-2 flex items-center justify-between">
-        <span className="font-bold text-md">Chatler</span>
-        <button
-          className="w-8 h-8 flex items-center justify-center rounded bg-blue-grey-5 text-white hover:bg-blue-grey-4 transition text-xl p-0"
-          onClick={() => {/* yeni chat açma işlemi */}}
-          aria-label="Yeni Chat"
-        >
-          <span className="material-icons text-lg">add</span>
-        </button>
-      </div>
-    );
-    contentList = (
       <>
-        {contentList}
-        <ChatList chats={chats} selectedChatId={1} onSelect={()=>setMainPage("chats")} />
+        <div className="mb-2 font-bold text-md flex items-center justify-between">
+          <span>Chats</span>
+          <button
+            className="w-8 h-8 flex items-center justify-center rounded bg-blue-grey-5 text-white hover:bg-blue-grey-4 transition text-xl p-0"
+            onClick={() => setSelectedChatId(null)}
+            aria-label="Yeni Chat"
+          >
+            <span className="material-icons text-lg">add</span>
+          </button>
+        </div>
+        <ChatList
+          selectedChatId={selectedChatId}
+          onSelect={setSelectedChatId}
+          // onRename ve onDelete fonksiyonları ChatContainer'da yönetilecek
+        />
       </>
     );
   }
@@ -223,9 +205,7 @@ export default function App() {
       <Sidebar
         selectedNav={selectedNav}
         setSelectedNav={nav => { setSelectedNav(nav); setMainPage(nav); }}
-        contentList={<>
-          {contentList}
-        </>}
+        contentList={<>{contentList}</>}
         onLogoClick={() => { setSelectedNav("chats"); setMainPage("chats"); }}
         open={sidebarOpen}
       />
@@ -244,11 +224,14 @@ export default function App() {
         </div>
         {/* Ana içerik alanı */}
         <div className="flex-1 overflow-auto">
-          {selectedNav === "models" ? (
-            <ModelManager openModelId={openModelId} onOpenModel={setOpenModelId} />
-          ) : (
-            <MainContent page={mainPage} chats={chats} models={models} files={files} />
-          )}
+          <MainContent
+            page={mainPage}
+            selectedChatId={selectedChatId}
+            setSelectedChatId={setSelectedChatId}
+            models={models}
+            selectedModel={selectedModel}
+            setSelectedModel={setSelectedModel}
+          />
         </div>
       </main>
     </div>

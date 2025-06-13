@@ -64,11 +64,25 @@ class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
 
+class FileMetadata(BaseModel):
+    file_id: str
+    original_filename: str
+    content_type: str
+    original_size: int
+    num_chunks: int
+    chunked_total_size: int
+    upload_time: datetime
+    user_id: Optional[str] = None
+
 class FileUploadResponse(BaseModel):
     file_id: str
     filename: str
     content_type: str
     size: int
+    num_chunks: int
+    chunked_total_size: int
+    upload_time: datetime
+    user_id: Optional[str] = None
 
 class ModelCreateRequest(BaseModel):
     provider: ModelProvider = ModelProvider.OPENROUTER

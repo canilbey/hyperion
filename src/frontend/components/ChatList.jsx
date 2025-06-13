@@ -22,11 +22,12 @@ function ActionMenu({ open, onRename, onDelete, onClose }) {
   );
 }
 
-const ChatList = ({ chats, selectedChatId, onSelect, onRename, onDelete }) => {
+const ChatList = ({ chats = [], selectedChatId, onSelect, onRename, onDelete }) => {
   const [menuOpen, setMenuOpen] = useState(null);
+  const safeChats = Array.isArray(chats) ? chats : [];
   return (
     <ul className="space-y-3 pl-4">
-      {chats.map((chat) => (
+      {safeChats.map((chat) => (
         <li key={chat.id} className="list-disc text-white relative">
           <button
             className={`w-full text-left px-4 py-2 font-medium transition border-none outline-none flex items-center justify-between bg-transparent
