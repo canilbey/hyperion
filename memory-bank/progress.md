@@ -1,5 +1,16 @@
 # Hyperion Progress
 
+## 🆕 Son Gelişmeler
+
+- **✅ Attu (Milvus Web UI) docker-compose ile projeye eklendi ve Milvus bağlantısı başarıyla sağlandı.** Artık vektör veritabanı görsel olarak yönetilebiliyor, koleksiyonlar ve vektörler Attu arayüzünden incelenip silinebiliyor.
+- **✅ Milvus bağlantı sorunları çözüldü:** Attu konteyneri için `MILVUS_URL=host.docker.internal:19530` ayarı ile bağlantı sağlandı.
+- **✅ Chat listesinde silme butonu ve anında chat başlatma:** Chat listesinde her sohbet için silme butonu eklendi, yeni bir konuşma başladığında chat ekranı anında açılıyor.
+- **✅ LLM yanıtlarında markdown render:** LLM'den gelen yanıtlar ve kullanıcı mesajları artık markdown olarak düzgün şekilde render ediliyor (react-markdown + remark-gfm ile).
+- **✅ Dosya yükleme limiti artırıldı:** Backend'de dosya yükleme limiti 10MB → 1GB'a çıkarıldı. Frontend'de kullanıcıya maksimum dosya boyutu bilgisi gösteriliyor.
+- **✅ OpenRouter API timeout artırıldı:** Büyük belge ve RAG context ile yapılan sorgularda timeout hatası yaşanmaması için OpenRouter, OpenAI ve Anthropic API çağrılarında timeout 60 saniyeye çıkarıldı.
+- **✅ SQL ambiguous column hatası çözüldü:** Chat silme işlemlerinde yaşanan SQL hata ve UUID handling bug'ları giderildi.
+- **✅ Frontend FileManager ve ChatContainer UI/UX iyileştirmeleri:** Dosya yönetimi ve chat arayüzü modernleştirildi, silme ve detay gösterimi optimize edildi.
+
 ## ✅ Tamamlanan Özellikler
 
 ### Backend Infrastructure
@@ -58,7 +69,7 @@
 ## 🚧 Devam Eden Çalışmalar
 
 ### Frontend Development
-- **📋 React frontend** - UI/UX geliştirme
+- **�� React frontend** - UI/UX geliştirme
 - **📋 API integration** - Backend ile frontend bağlantısı
 - **📋 File upload UI** - Drag & drop interface
 - **📋 Chat interface** - Real-time messaging
@@ -149,6 +160,12 @@
 
 ## 🔧 Son Yapılan İyileştirmeler
 
+- **✅ Chat listesinde silme butonu ve anında chat başlatma**
+- **✅ LLM yanıtlarında markdown render**
+- **✅ Dosya yükleme limiti artırıldı (1GB)**
+- **✅ OpenRouter API timeout artırıldı (60s)**
+- **✅ SQL ambiguous column ve UUID bug fix**
+- **✅ Frontend FileManager ve ChatContainer UI/UX iyileştirmeleri**
 - **✅ RAG Chat Integration** - Chat service'e RAG context otomatik ekleme
 - **✅ Vector Search Fix** - Milvus output_fields ile metadata retrieval
 - **✅ Async RAG Service** - Database integration ile text content çekme
@@ -258,3 +275,15 @@
 ## Genel
 - Tüm sayfalarda component'lerin ekrana göre scale olması ve modern görünüm için responsive düzenlemeler orta vadeli planda.
 - Geliştirme adım adım ilerliyor, memory-bank üzerinden takip edilecek. 
+
+# progress - Context Window Yönetimi İlerlemesi
+
+## Şu Ana Kadar Yapılanlar
+- Prompt büyümesi ve context window taşması engellendi.
+- Token limiti aşılırsa eski mesajlar baştan siliniyor.
+
+## Planlananlar
+- Gerçek token hesaplama entegrasyonu.
+- Eski mesajların otomatik özetlenmesi.
+- Kullanıcıya context window uyarısı.
+- Gelişmiş context ve RAG yönetimi stratejileri. 

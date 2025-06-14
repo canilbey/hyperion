@@ -72,9 +72,16 @@ class ChatService:
                 # Context'i sistem prompt'una dönüştür
                 context_texts = []
                 for chunk in context_chunks:
-                    metadata = chunk.get("metadata", "")
-                    if metadata:
-                        context_texts.append(metadata)
+                    # Öncelik: chunk['text'], sonra metadata içindeki 'text' veya 'text_content'
+                    text = chunk.get("text", "")
+                    if not text:
+                        metadata = chunk.get("metadata", "")
+                        if isinstance(metadata, dict):
+                            text = metadata.get("text") or metadata.get("text_content") or ""
+                        elif isinstance(metadata, str):
+                            text = metadata
+                    if text:
+                        context_texts.append(text)
                 
                 if context_texts:
                     context_text = "\n".join(context_texts)
@@ -256,7 +263,10 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
             "Content-Type": "application/json"
         }
 
-        async with httpx.AsyncClient() as client:
+        # Configure timeout for longer responses (especially with RAG context)
+        timeout = httpx.Timeout(60.0, connect=10.0)  # 60s total, 10s connect
+        
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 json={
@@ -319,6 +329,22 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
         except Exception as e:
             self.logger.error(f"Error invalidating cache: {str(e)}")
 
+    def _estimate_token_count(self, messages: List[dict]) -> int:
+        """Mesaj listesinin yaklaşık toplam token sayısını döndürür."""
+        total = 0
+        for msg in messages:
+            content = msg.get('content', '')
+            total += len(content.split()) * 2  # Basit tahmin
+        return total
+
+    def _truncate_messages_to_token_limit(self, messages: List[dict], token_limit: int) -> List[dict]:
+        """Token limiti aşılırsa en eski mesajdan başlayarak mesajları çıkarır."""
+        truncated = list(messages)
+        while self._estimate_token_count(truncated) > token_limit and len(truncated) > 1:
+            # En baştaki mesajı sil (genellikle en eski user/assistant)
+            truncated.pop(0)
+        return truncated
+
     async def call_model_api(self, session, messages, custom_system_prompt=None):
         """Gerçek model API çağrısı yapar. RAG entegrasyonu ile."""
         model_id = getattr(session, 'model_id', None)
@@ -329,7 +355,7 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
         self.logger.info(f"call_model_api: model_config={model_config}")
         self.logger.info(f"call_model_api: api_key={api_key}")
         
-        # RAG entegrasyonu: Son kullanıcı mesajını al ve RAG context'i oluştur
+        # Sadece en son user mesajı için RAG context ekle
         user_message = None
         for msg in reversed(messages):
             if hasattr(msg, 'role') and msg.role == "user":
@@ -339,26 +365,18 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
                 user_message = msg
                 break
         
-        # RAG context'i ekle
+        messages_with_rag = []
         if user_message:
             query = user_message.content if hasattr(user_message, 'content') else user_message.get('content', '')
             rag_context = await self.get_rag_context(query)
-            
             if rag_context:
-                self.logger.info("RAG context added to system prompt")
-                # Sistem mesajı olarak RAG context'i ekle
+                self.logger.info("RAG context added to system prompt (only for last user message)")
                 rag_system_message = {
-                    "role": "system", 
+                    "role": "system",
                     "content": rag_context
                 }
-                # Mesajları kopyala ve başına sistem mesajını ekle
-                messages_with_rag = [rag_system_message] + list(messages)
-            else:
-                self.logger.info("No RAG context found, proceeding without enhancement")
-                messages_with_rag = messages
-        else:
-            self.logger.warning("No user message found for RAG context")
-            messages_with_rag = messages
+                messages_with_rag.append(rag_system_message)
+        messages_with_rag.extend(messages)
         
         # Custom system prompt'u da ekle (varsa)
         if custom_system_prompt:
@@ -367,6 +385,10 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
         
         # Mesajları serializable hale getir
         messages_dict = self._serialize_messages_for_llm(messages_with_rag)
+
+        # Token limiti uygula (truncate)
+        token_limit = model_config.get("token_limit") or model_config.get("max_tokens") or 4000
+        messages_dict = self._truncate_messages_to_token_limit(messages_dict, token_limit)
         
         if model_config["provider"] == "openrouter":
             return await self._call_openrouter_api(messages_dict, model, api_key)
@@ -417,9 +439,11 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
         self.logger.debug(f"OpenAI API request data: {messages}")
         openai.api_key = api_key
         
+        # Configure timeout for longer responses
         response = await openai.ChatCompletion.acreate(
             model=model,
-            messages=messages
+            messages=messages,
+            timeout=60.0  # 60 seconds timeout
         )
         
         self.logger.debug(f"OpenAI API response: {response}")
@@ -449,7 +473,12 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
         
         self.logger.info(f"Calling Anthropic API: model={model}")
         self.logger.debug(f"Anthropic API request data: {messages}")
-        client = anthropic.AsyncAnthropic(api_key=api_key)
+        
+        # Configure timeout for longer responses
+        client = anthropic.AsyncAnthropic(
+            api_key=api_key,
+            timeout=60.0  # 60 seconds timeout
+        )
         
         response = await client.messages.create(
             model=model,

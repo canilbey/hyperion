@@ -50,3 +50,10 @@ The RAG Retrieval & Context Assembly sub-project is responsible for retrieving r
 ## References
 - See prd.md for requirements and architecture
 - Related sub-projects: Vector Database Integration, Chat & Conversation Engine, Observability & DevOps 
+
+## Yenilikler ve İyileştirmeler (2025-06)
+- **Çok Dilli Embedding:** RAG arama pipeline'ı artık `paraphrase-multilingual-MiniLM-L12-v2` ile Türkçe ve diğer dillerde yüksek doğruluk sağlar.
+- **Preprocessing:** Sorgu ve chunk'lar için normalize, lower, strip ve fazla boşluk temizliği uygulanır.
+- **Similarity Threshold:** Milvus aramasında similarity threshold (varsayılan 0.5) uygulanır, düşük skorlar filtrelenir.
+- **Debug ve Log:** Arama skorları loglanır, düşük benzerlikte kullanıcıya uyarı verilebilir.
+- **Test:** Türkçe doküman ve sorgularla başarıyla test edilmiştir. 

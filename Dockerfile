@@ -52,5 +52,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application with health check endpoint
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"] 
+# Run the application with health check endpoint and increased limits
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--limit-max-requests", "1000", "--timeout-keep-alive", "30"] 

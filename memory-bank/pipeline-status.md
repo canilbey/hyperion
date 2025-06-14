@@ -151,4 +151,16 @@ Hyperion RAG pipeline tamamen implement edildi ve test edildi. Kullanıcılar ar
 - Chat sırasında ilgili belge parçaları otomatik olarak bulunur
 - LLM'ler belge bilgileri ile enhanced yanıtlar üretir
 
-**Sistem production-ready seviyede çalışmaktadır!** 
+**Sistem production-ready seviyede çalışmaktadır!**
+
+# pipeline-status - Context Window Yönetimi
+
+## Şu Anki Durum
+- Prompt büyümesi ve context window taşması engellendi.
+- Token limiti aşılırsa eski mesajlar baştan siliniyor.
+
+## Yol Haritası
+- Gerçek token hesaplama entegrasyonu.
+- Eski mesajların otomatik özetlenmesi.
+- Kullanıcıya context window uyarısı.
+- Gelişmiş context ve RAG yönetimi stratejileri. 

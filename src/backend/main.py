@@ -13,12 +13,14 @@ from backend.services.core.init_service import InitService
 from backend.models import (
     ChatRequest, ChatResponse, 
     SearchRequest, FileUploadResponse,
-    ModelCreateRequest, ModelCreateResponse
+    ModelCreateRequest, ModelCreateResponse,
+    ChatMessage
 )
 from backend.services.auth import router as auth_router
 from backend.routers import embedding as embedding_router
 from backend.services.file.service import FileService
 from backend.services.milvus_service import MilvusService
+from typing import List
 
 # Configure logging
 logging.basicConfig(
@@ -32,6 +34,9 @@ for name in ['services', 'main']:
     logging.getLogger(name).setLevel(logging.DEBUG)
 
 app = FastAPI()
+
+# Configure file upload limits
+app.state.max_file_size = 104857600  # 100MB
 
 # Initialize configurations
 core_config = CoreConfig()
@@ -185,7 +190,7 @@ async def list_chats():
         logger.error(f"[GET /chats] Error: {e}")
         raise
 
-@app.get("/chats/{identifier}/messages")
+@app.get("/chats/{identifier}/messages", response_model=List[ChatMessage])
 async def get_chat_history(identifier: str):
     logger.info(f"[GET /chats/{identifier}/messages] Get chat history called: identifier={identifier}")
     try:

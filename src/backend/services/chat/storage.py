@@ -84,7 +84,7 @@ class ChatStorageService:
             SELECT role, content, usage, created_at
             FROM messages
             WHERE {condition}
-            ORDER BY created_at DESC
+            ORDER BY created_at ASC
             {limit}
         """.format(
             condition="chat_id = :identifier" if chat_id else "chat_name = :identifier",
@@ -96,10 +96,16 @@ class ChatStorageService:
         
         # Cache results
         if self.redis and rows:
+            def serialize_row(row):
+                d = dict(row)
+                for k, v in d.items():
+                    if hasattr(v, 'isoformat'):
+                        d[k] = v.isoformat()
+                return d
             await self.redis.set(
                 f"chat:{chat_id}:messages",
-                json.dumps([dict(row) for row in rows]),
-                expire=86400  # 24 hours
+                json.dumps([serialize_row(row) for row in rows]),
+                ex=86400  # 24 hours
             )
             
         return [ChatMessage(**row) for row in rows]
@@ -198,35 +204,47 @@ class ChatStorageService:
         if not chat_id and not chat_name:
             raise ValueError("Either chat_id or chat_name must be provided")
 
+        identifier = chat_id if chat_id else chat_name
+        identifier_str = str(chat_id) if chat_id else chat_name
+
         # Get metadata before deletion
-        metadata = await self.get_chat_metadata(chat_id or chat_name)
+        metadata = await self.get_chat_metadata(identifier)
         
         # Delete messages first (due to foreign key constraint)
         await self.database.execute(
             "DELETE FROM messages WHERE chat_id = :identifier",
-            {"identifier": str(chat_id) if chat_id else chat_name}
+            {"identifier": identifier_str}
         )
         
         # Delete chat
         await self.database.execute(
             "DELETE FROM chats WHERE chat_id = :identifier",
-            {"identifier": str(chat_id) if chat_id else chat_name}
+            {"identifier": identifier_str}
         )
         
         # Invalidate cache
         if self.redis:
-            await self.redis.delete(f"chat:{chat_id or chat_name}:messages")
+            await self.redis.delete(f"chat:{identifier_str}:messages")
             
         return {"status": "deleted", **metadata}
 
-    async def get_chat_metadata(self, identifier: str) -> Dict:
+    async def get_chat_metadata(self, identifier) -> Dict:
         """Get chat metadata by ID or name"""
         try:
             from uuid import UUID
-            chat_id = UUID(identifier)
-            condition = "chat_id = :identifier"
-        except ValueError:
-            condition = "label = :identifier"
+            # If already a UUID object, convert to string; if string, try to parse as UUID
+            if isinstance(identifier, UUID):
+                chat_id = identifier
+                identifier_str = str(identifier)
+                condition = "c.chat_id = :identifier"
+            else:
+                chat_id = UUID(identifier)
+                identifier_str = str(chat_id)
+                condition = "c.chat_id = :identifier"
+        except (ValueError, TypeError):
+            # If not a valid UUID, treat as label/name
+            identifier_str = str(identifier)
+            condition = "c.label = :identifier"
             
         query = f"""
             SELECT c.chat_id, c.label, c.created_at,
@@ -234,9 +252,9 @@ class ChatStorageService:
             FROM chats c
             LEFT JOIN messages m ON c.chat_id = m.chat_id
             WHERE {condition}
-            GROUP BY c.chat_id
+            GROUP BY c.chat_id, c.label, c.created_at
         """
-        row = await self.database.fetch_one(query=query, values={"identifier": identifier})
+        row = await self.database.fetch_one(query=query, values={"identifier": identifier_str})
         if not row:
             raise ValueError(f"Chat not found: {identifier}")
         return dict(row)

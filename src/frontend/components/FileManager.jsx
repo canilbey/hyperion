@@ -55,6 +55,7 @@ function FileDropzone({ onUpload, loading }) {
         disabled={loading}
       />
       {loading ? "Yükleniyor..." : "Dosya eklemek için tıkla veya sürükle-bırak yap"}
+      {!loading && <div className="text-xs text-blue-grey-2 mt-2">Maksimum dosya boyutu: 100MB</div>}
     </div>
   );
 }

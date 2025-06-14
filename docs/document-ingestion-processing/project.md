@@ -52,4 +52,11 @@ The Document Ingestion & Processing sub-project is responsible for handling the 
 
 ## References
 - See prd.md for requirements and architecture
-- Related sub-projects: Embedding & Vectorization, Core Backend API & Auth, Observability & DevOps 
+- Related sub-projects: Embedding & Vectorization, Core Backend API & Auth, Observability & DevOps
+
+## Yenilikler ve İyileştirmeler (2025-06)
+- **Çok Dilli Embedding Modeli:** Varsayılan model `paraphrase-multilingual-MiniLM-L12-v2` olarak güncellendi. Türkçe ve diğer dillerde yüksek doğruluk.
+- **Preprocessing Pipeline:** Tüm metinler (doküman chunk'ları ve sorgular) için unicode normalization, lower, strip ve fazla boşluk temizliği uygulanır.
+- **Chunking:** LangChain RecursiveCharacterTextSplitter ile 500 karakter, 50 overlap, Türkçe için optimize ayraçlar.
+- **Tutarlı Embedding:** Hem doküman yüklemede hem aramada aynı preprocessing uygulanır.
+- **Test:** Türkçe doküman ve sorgularla başarıyla test edilmiştir. 

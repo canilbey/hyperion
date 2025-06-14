@@ -75,7 +75,10 @@ class ChatService:
         })
         
         try:
-            async with aiohttp.ClientSession() as session:
+            # Configure timeout for longer responses (especially with RAG context)
+            timeout = aiohttp.ClientTimeout(total=60.0, connect=10.0)
+            
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers=headers,

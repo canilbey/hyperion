@@ -14,6 +14,7 @@ class ModelProvider(str, Enum):
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
+    created_at: Optional[datetime] = None
 
 class ModelConfigRequest(BaseModel):
     model_id: Optional[str] = Field(

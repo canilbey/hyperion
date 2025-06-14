@@ -132,6 +132,16 @@ services:
     networks:
       - hyperion-network
 
+  attu:
+    image: zilliz/attu:latest
+    container_name: attu
+    environment:
+      - MILVUS_URL=host.docker.internal:19530
+    ports:
+      - "8001:3000"
+    depends_on:
+      - milvus
+
 volumes:
   postgres_data:
   redis_data:

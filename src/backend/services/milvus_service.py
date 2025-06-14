@@ -2,6 +2,8 @@ from pymilvus import Collection, CollectionSchema, FieldSchema, DataType, connec
 from typing import List, Optional
 import numpy as np
 import os
+import json
+import logging
 
 class MilvusService:
     def __init__(self, host: str = None, port: str = None, collection_name: str = 'embeddings'):
@@ -10,6 +12,7 @@ class MilvusService:
         self.collection_name = collection_name
         self._connected = False
         self._collection = None
+        self.logger = logging.getLogger(__name__)
 
     def _connect_and_init(self):
         if not self._connected:
@@ -50,6 +53,10 @@ class MilvusService:
         # Create numpy array with explicit float32 dtype
         embedding_array = np.array(embedding_list, dtype=np.float32)
         
+        # Metadata dict ise JSON'a çevir
+        if isinstance(metadata, dict):
+            metadata = json.dumps(metadata, ensure_ascii=False)
+        
         # Milvus insert format: [values] not {"field": [values]}
         data = [
             [embedding_array],  # embedding field
@@ -57,7 +64,7 @@ class MilvusService:
         ]
         self._collection.insert(data)
 
-    def search(self, query_embedding: List[float], top_k: int = 5, filter_expr: Optional[str] = None):
+    def search(self, query_embedding: List[float], top_k: int = 5, filter_expr: Optional[str] = None, similarity_threshold: float = 0.5):
         self._connect_and_init()
         
         # Convert query embedding to proper format (same as insert_embedding)
@@ -79,4 +86,12 @@ class MilvusService:
             expr=filter_expr,
             output_fields=["metadata"]  # Metadata field'ını da döndür
         )
-        return results 
+        # L2 mesafesini benzerliğe çevir (örnek: similarity = 1 / (1 + distance))
+        filtered_results = []
+        for hit in results[0]:
+            distance = getattr(hit, 'distance', None)
+            similarity = 1 / (1 + distance) if distance is not None else 0
+            self.logger.info(f"Milvus search result: distance={distance}, similarity={similarity}")
+            if similarity >= similarity_threshold:
+                filtered_results.append(hit)
+        return [filtered_results] 

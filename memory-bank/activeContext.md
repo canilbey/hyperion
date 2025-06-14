@@ -61,4 +61,33 @@
 - Milvus container restart dependency çözülmesi gerekiyor
 - Large document processing için memory optimization planlanmalı
 - Frontend-backend integration için API documentation tamamlanmalı
-- User authentication ile document isolation entegrasyonu yapılmalı 
+- User authentication ile document isolation entegrasyonu yapılmalı
+
+# activeContext - Güncel Durum ve Planlar
+
+## Şu Anki Durum
+- Sadece en son user mesajı için RAG context ekleniyor.
+- LLM'ye gönderilecek mesajların toplam token sayısı yaklaşık olarak kelime sayısının iki katı ile tahmin ediliyor.
+- Modelin context window/token limiti aşılırsa, en eski mesajdan başlayarak mesajlar otomatik olarak siliniyor.
+
+## Yol Haritası
+- Daha hassas token hesaplama (ör. tiktoken ile).
+- Eski mesajların otomatik özetlenmesi.
+- Kullanıcıya context window dolduğunda uyarı.
+- Gelişmiş context window ve RAG yönetimi stratejileri.
+
+# Arama Sonuçlarının Gösterimi - Mevcut Durum ve Plan
+
+## Mevcut Durum
+- Backend ve API, arama sonuçlarında chunk metni, skor ve zengin metadata (sayfa numarası, dosya adı, chunk_index, offset, vs.) dönebiliyor.
+- Frontend'de genellikle sadece metin ve skor gösteriliyor, metadata çoğunlukla kullanılmıyor.
+
+## Planlanan İyileştirmeler
+1. **API response formatı netleştirilecek ve dökümante edilecek.**
+2. **Frontend'de arama sonucu kartları, metadata (sayfa numarası, dosya adı, chunk_index, konum, vs.) ile zenginleştirilecek.**
+3. **Kullanıcıya chunk'ın kaynağı ve konumu (örn. PDF sayfası) gösterilecek, "Kaynağı Gör" gibi butonlar eklenecek.**
+4. **Ekstra UX iyileştirmeleri: Tooltip, detay modalı, chunk highlight, filtreleme/sıralama, metadata export, chunk gruplama.**
+
+## Hedef
+- Chunk'ın metniyle birlikte, sayfa numarası, dosya adı, chunk konumu gibi tüm metadata'nın kullanıcıya şeffaf ve kullanışlı şekilde sunulması.
+- Kullanıcı deneyiminin ve arama sonuçlarının anlamlılığının artırılması. 

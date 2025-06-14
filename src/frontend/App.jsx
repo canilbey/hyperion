@@ -5,6 +5,7 @@ import ModelManager from "./components/ModelManager";
 import FileManager from "./components/FileManager";
 import { getModels } from "./services/modelService";
 import { getFiles } from "./services/fileService";
+import { getChats, deleteChat } from "./services/chatService";
 import ChatContainer from "./components/ChatContainer";
 
 const PROFILE_MENU = [
@@ -29,7 +30,7 @@ function ProfileDropdown({ open, onSelect }) {
   );
 }
 
-function MainContent({ page, selectedChatId, setSelectedChatId, models, selectedModel, setSelectedModel }) {
+function MainContent({ page, selectedChatId, setSelectedChatId, models, selectedModel, setSelectedModel, chats, setChats }) {
   // Chat alanı (ChatGPT tarzı)
   if (page === "chats") {
     return <ChatContainer
@@ -38,6 +39,8 @@ function MainContent({ page, selectedChatId, setSelectedChatId, models, selected
       models={models}
       selectedModel={selectedModel}
       setSelectedModel={setSelectedModel}
+      chats={chats}
+      setChats={setChats}
     />;
   }
 
@@ -48,46 +51,7 @@ function MainContent({ page, selectedChatId, setSelectedChatId, models, selected
 
   // File alanı
   if (page === "files") {
-    return (
-      <div className="flex gap-8 p-8">
-        <ul className="flex flex-col gap-3 w-80">
-          {files.map(file => (
-            <li key={file.file_id}>
-              <div className={`flex items-center justify-between px-5 py-4 rounded-2xl cursor-pointer transition bg-blue-grey-5 hover:bg-blue-grey-4 text-white ${selectedFile && selectedFile.file_id === file.file_id ? 'ring-2 ring-blue-grey-3' : ''}`}
-                onClick={() => setSelectedFile(file)}>
-                <span>{file.filename}</span>
-                <button
-                  className="material-icons text-red-300 hover:text-red-500 text-2xl bg-transparent border-none p-0 ml-2"
-                  onClick={e => { e.stopPropagation(); onFileDelete && onFileDelete(file.file_id); }}
-                  aria-label="Sil"
-                >
-                  delete
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        {/* Detay paneli */}
-        {selectedFile && (
-          <div className="flex-1 max-w-lg bg-blue-grey-5 rounded-2xl p-8 shadow-xl text-white">
-            <div className="mb-4 text-lg font-bold">Dosya Metadata</div>
-            <div className="space-y-2">
-              <div><b>ID:</b> {selectedFile.file_id}</div>
-              <div><b>Dosya Adı:</b> {selectedFile.filename}</div>
-              <div><b>İçerik Tipi:</b> {selectedFile.content_type}</div>
-              <div><b>Orijinal Boyut (byte):</b> {selectedFile.size}</div>
-              <div><b>Chunk Sayısı:</b> {selectedFile.num_chunks}</div>
-              <div><b>Chunk'lanmış Toplam Boyut (byte):</b> {selectedFile.chunked_total_size}</div>
-              <div><b>Yüklenme Tarihi:</b> {selectedFile.upload_time}</div>
-              <div><b>Kullanıcı ID:</b> {selectedFile.user_id || '-'}</div>
-              <div className="flex gap-3 mt-4">
-                <button className="bg-blue-grey-4 text-white px-6 py-2 rounded-xl hover:bg-blue-grey-3 transition" onClick={() => setSelectedFile(null)}>Kapat</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
+    return <FileManager />;
   }
 
   // Default
@@ -104,14 +68,28 @@ export default function App() {
   const [modelError, setModelError] = useState(null);
   const [fileError, setFileError] = useState(null);
   const [chats, setChats] = useState([]);
-  const [openModelId, setOpenModelId] = useState(null);
   const [selectedChatId, setSelectedChatId] = useState(null);
+  const [openModelId, setOpenModelId] = useState(null);
   const [selectedModel, setSelectedModel] = useState("");
 
   useEffect(() => {
     getModels().then(setModels).catch(() => setModelError("Modeller alınamadı"));
     getFiles().then(setFiles).catch(() => setFileError("Dosyalar alınamadı"));
+    getChats().then(setChats).catch(() => setChats([]));
   }, []);
+
+  const handleDeleteChat = async (chatId) => {
+    if (!window.confirm("Bu sohbeti silmek istediğinizden emin misiniz?")) return;
+    try {
+      await deleteChat(chatId);
+      setChats(chats.filter(c => c.chat_id !== chatId));
+      if (selectedChatId === chatId) {
+        setSelectedChatId(null);
+      }
+    } catch (err) {
+      console.error("Sohbet silinemedi:", err);
+    }
+  };
 
   // Sidebar alt içerik
   let contentList = null;
@@ -128,11 +106,32 @@ export default function App() {
             <span className="material-icons text-lg">add</span>
           </button>
         </div>
-        <ChatList
-          selectedChatId={selectedChatId}
-          onSelect={setSelectedChatId}
-          // onRename ve onDelete fonksiyonları ChatContainer'da yönetilecek
-        />
+        <ul className="flex flex-col gap-1 mb-4">
+          {chats.length === 0 && <li className="text-blue-grey-2">Hiç sohbet yok</li>}
+          {chats.map(chat => (
+            <li key={chat.chat_id} className="relative group">
+              <div className="flex items-center">
+                <button
+                  className={`flex-1 text-left px-3 py-2 rounded transition font-medium ${selectedChatId === chat.chat_id ? 'bg-blue-grey-3 text-white' : 'bg-blue-grey-5 text-white hover:bg-blue-grey-4'}`}
+                  onClick={() => setSelectedChatId(chat.chat_id)}
+                >
+                  {chat.label || chat.chat_id}
+                </button>
+                <button
+                  className="w-8 h-8 flex items-center justify-center rounded bg-red-600 text-white hover:bg-red-700 transition text-sm ml-2 opacity-0 group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteChat(chat.chat_id);
+                  }}
+                  aria-label="Sohbeti Sil"
+                  title="Sohbeti Sil"
+                >
+                  🗑️
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
       </>
     );
   }
@@ -187,7 +186,7 @@ export default function App() {
       <>
         {contentList}
         {fileError && <div className="text-red-500">{fileError}</div>}
-        <FileManager files={files} selectedId={null} onSelect={()=>{}} onAdd={()=>{}} onDelete={()=>{}} onEdit={()=>{}} />
+        <FileManager />
       </>
     );
   }
@@ -206,7 +205,7 @@ export default function App() {
         selectedNav={selectedNav}
         setSelectedNav={nav => { setSelectedNav(nav); setMainPage(nav); }}
         contentList={<>{contentList}</>}
-        onLogoClick={() => { setSelectedNav("chats"); setMainPage("chats"); }}
+        onLogoClick={() => { setSelectedNav("chats"); setMainPage("chats"); setSelectedChatId(null); }}
         open={sidebarOpen}
       />
       <main className="flex-1 flex flex-col relative">
@@ -231,6 +230,8 @@ export default function App() {
             models={models}
             selectedModel={selectedModel}
             setSelectedModel={setSelectedModel}
+            chats={chats}
+            setChats={setChats}
           />
         </div>
       </main>

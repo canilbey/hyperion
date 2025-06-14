@@ -57,4 +57,61 @@ Tüm API uç noktaları, açıklamaları ve örnek kullanımlar için lütfen [d
 - **Monitoring**: Logging, health checks, error tracking
 - **Scaling**: Milvus clustering, Redis clustering, database sharding
 - **Backup**: Vector data backup strategies, PostgreSQL backups
-- **Updates**: Model version management, embedding consistency 
+- **Updates**: Model version management, embedding consistency
+
+# techContext - Teknik Context Window Yönetimi
+
+## Teknik Durum
+- Prompt büyümesi ve context window taşması kontrol altına alındı.
+- Token limiti aşılırsa eski mesajlar baştan siliniyor (truncate).
+
+## Teknik Yol Haritası
+- Gerçek token hesaplama entegrasyonu (örn. tiktoken).
+- Eski mesajların otomatik özetlenmesi.
+- Kullanıcıya context window uyarısı.
+- Gelişmiş context ve RAG yönetimi stratejileri.
+
+# LangChain Text Splitters ile Semantic Chunking Entegrasyon Planı
+
+## Amaç
+PDF chunking işlemi artık sayfa bazlı değil, semantic chunking ile yapılacak. Bunun için LangChain Text Splitters kullanılacak.
+
+## Entegrasyon Adımları
+1. **Gereksinimler:**
+   - `langchain` kütüphanesi requirements.txt'ye eklenecek.
+2. **PDF'ten Metin Çıkarma:**
+   - Mevcut PDF parsing fonksiyonu ile tüm metin çıkarılacak.
+3. **LangChain ile Semantic Chunking:**
+   - `RecursiveCharacterTextSplitter` veya ihtiyaca göre başka bir splitter kullanılacak.
+   - Chunk boyutu ve overlap, LLM context window'una göre ayarlanacak.
+   - Örnek:
+     ```python
+     from langchain.text_splitter import RecursiveCharacterTextSplitter
+     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50, separators=["\n\n", "\n", ".", "!", "?", " "])
+     chunks = splitter.split_text(pdf_text)
+     ```
+4. **Chunk Metadata'sı:**
+   - Her chunk'a index, orijinal sayfa, başlık, dosya adı gibi metadata eklenecek.
+5. **Embedding ve Vektör DB:**
+   - Her chunk embedding'e dönüştürülüp metadata ile birlikte vektör veritabanına kaydedilecek.
+6. **Search Pipeline:**
+   - Kullanıcı sorgusu embedding'e dönüştürülüp semantic chunk'lar arasında vektör benzerliği ile arama yapılacak.
+7. **Test ve Validasyon:**
+   - Farklı PDF'lerle semantic chunking ve arama kalitesi test edilecek.
+
+## Pipeline Akışı
+1. PDF Yükle → Metin Çıkar
+2. LangChain ile Semantic Chunking
+3. Chunk + Metadata → Embedding
+4. Embedding + Metadata → Vektör DB'ye Kaydet
+5. Kullanıcı Sorgusu → Embedding → Vektör DB'de Semantic Search
+6. Sonuçları Kullanıcıya Göster
+
+## Dikkat Edilecekler
+- Chunk boyutu ve overlap, kullanılan LLM'e göre optimize edilmeli.
+- Metadata kaybolmamalı, arama sonuçlarında chunk'ın kaynağı gösterilmeli.
+- Gerekirse splitter özelleştirilmeli (başlık bazlı bölme vs.).
+
+---
+
+Bu plan Hyperion'un RAG ve arama kalitesini artırmak için teknik yol haritası olarak kullanılacaktır. 
