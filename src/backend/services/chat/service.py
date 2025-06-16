@@ -66,7 +66,7 @@ class ChatService:
             self.logger.info(f"RAG context retrieval started for query: {query[:100]}...")
             
             # Vector search ile ilgili chunk'ları bul
-            context_chunks = await self.rag_service.retrieve_context(query, top_k=5)
+            context_chunks = await self.rag_service.retrieve_context(query, similarity_threshold=0.1)
             
             if context_chunks:
                 # Context'i sistem prompt'una dönüştür

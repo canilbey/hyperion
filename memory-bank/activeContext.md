@@ -1,6 +1,10 @@
 # Active Context
 
 ## Şu Anki Odak
+- **✅ TAMAMLANDI:** libGL.so.1 hatası çözümü - OpenCV bağımlılığından kaçınma
+- **✅ TAMAMLANDI:** unstructured kütüphanesinin optimal kullanımı
+- **✅ TAMAMLANDI:** PDF parsing için en verimli yöntem (partition.auto + strategy optimization)
+- **✅ TAMAMLANDI:** Docker container optimizasyonu
 - Frontend React UI geliştirme ve backend entegrasyonu
 - Document management interface tasarımı
 - User-specific document isolation implementasyonu
@@ -8,10 +12,6 @@
 - Production environment configurations ve deployment hazırlığı
 - Performance optimizations (embedding caching, vector index tuning)
 - API rate limiting ve security hardening
-- **Yeni:** Chat arayüzü için modern, minimal, ChatGPT benzeri, tab'lı ve sidebar'lı tasarımın uygulanması
-- **Güncel:** Modern frontend arayüz taslağı (React + UnoCSS) tamamlandı. Sidebar, navigation, içerik listeleri ve ana içerik alanı (chat, model, dosya) modern ve tutarlı şekilde hazırlandı. UX geliştirmeleri ve backend entegrasyonu bir sonraki adım olarak planlandı.
-- **File Management:** Teknik olarak backend ve veri akışı çalışıyor, ancak frontend arayüzünde UX/UI problemleri mevcut. Sidebar ve ana panelde dosya detaylarının gösterimi, silme butonu ve akordiyon menü gibi alanlarda kullanıcı deneyimi iyileştirilmeli.
-- **Chat Servisi:** Chat arayüzü istenen gibi değil ve backend entegrasyonu tam anlamıyla doğru çalışmıyor. Chat silme, chat ismi düzenleme ve chat geçmişi (history) UI'da düzgün çalışmıyor/görünmüyor. Frontend ve backend entegrasyonunda eksikler ve hatalar mevcut. Kullanıcı deneyimi ve işlevsellik açısından chat yönetimi yeniden ele alınmalı.
 
 ## Son Yapılanlar
 - **🎉 RAG Pipeline Tamamen Tamamlandı** - End-to-end RAG sistemi çalışır durumda
@@ -90,4 +90,84 @@
 
 ## Hedef
 - Chunk'ın metniyle birlikte, sayfa numarası, dosya adı, chunk konumu gibi tüm metadata'nın kullanıcıya şeffaf ve kullanışlı şekilde sunulması.
-- Kullanıcı deneyiminin ve arama sonuçlarının anlamlılığının artırılması. 
+- Kullanıcı deneyiminin ve arama sonuçlarının anlamlılığının artırılması.
+
+# 2025-06-15: Modüler RAG Pipeline Servis Mimarisi ve Entegrasyon Planı
+
+## Hedefler
+- Her ana işlev (parsing, chunking, embedding, search) ayrı bir servis ve klasör olarak yapılandırılacak.
+- Her servis kendi bağımlılıklarını, yardımcı fonksiyonlarını ve testlerini içerecek.
+- Servisler arası iletişim net, sade ve API tabanlı olacak (gerekirse async/await ile).
+- Gelecekte yeni dosya tipleri veya chunking stratejileri kolayca eklenebilecek.
+- Unstructured ve diğer bağımlılıklar eksiksiz kurulacak.
+- Her servis için logging, hata yönetimi ve test altyapısı olacak.
+
+## Klasör Yapısı
+
+src/
+  backend/
+    services/
+      file_parsing/
+        parser.py           # partition.auto, fallback, dosya tipi tespiti
+        tests/
+      chunking/
+        chunker.py          # başlık bazlı, sabit boyutlu, vs. chunking
+        utils.py
+        tests/
+      embedding/
+        embedder.py         # sentence-transformers, model yönetimi
+        utils.py
+        tests/
+      search/
+        searcher.py         # Milvus, metadata, hybrid search
+        utils.py
+        tests/
+    routers/
+      file_router.py
+      chunking_router.py
+      embedding_router.py
+      search_router.py
+    ...
+
+## Servis Sorumlulukları
+- **file_parsing:** Dosya tipi tespiti, partition.auto ile parsing, fallback, temizlik, yeni formatlar için genişletilebilirlik
+- **chunking:** Başlık bazlı/sabit boyutlu/semantik chunking, metadata, birleştirme/bölme, test
+- **embedding:** Her chunk için embedding, model yönetimi, metadata
+- **search:** Sorgu embedding'i ile Milvus arama, metadata ile parent chunk çekme, hybrid search, LLM prompt hazırlama
+
+## Entegrasyon Akışı
+1. Kullanıcı dosya yükler → file_parsing servisi parse eder
+2. Element listesi → chunking servisine aktarılır, chunk'lara bölünür
+3. Chunk listesi → embedding servisine aktarılır, embedding'ler üretilir ve Milvus'a kaydedilir
+4. Kullanıcı sorgusu → search servisine gelir, arama yapılır, en alakalı chunk ve parent chunk bulunur
+5. Sonuçlar → LLM'ye prompt olarak hazırlanır ve kullanıcıya döndürülür
+
+## Gereksinimler
+- Python: unstructured[pdf,docx,html,image,eml], PyPDF2, sentence-transformers, pymilvus, elasticsearch, langchain, ...
+- Sistem: poppler-utils, libmagic1, tesseract-ocr, libxml2-dev, libxslt1-dev, file
+- NLTK data: punkt, averaged_perceptron_tagger (runtime'da otomatik indirme)
+
+## Dinamik Dosya Tipi Yönetimi
+- Uzantı + magic number + partition.auto ile tespit
+- Gerekli unstructured eklentisi yüklü değilse log ve kullanıcıya uyarı
+- Gelecekte yeni formatlar için kolayca yeni parser eklenebilir
+
+## Servisler Arası API/Interface
+- file_parsing.parser.parse(file_path) -> List[Element]
+- chunking.chunker.chunk(elements) -> List[Chunk]
+- embedding.embedder.embed(chunks) -> List[Embedding]
+- search.searcher.search(query_embedding) -> List[SearchResult]
+
+## Test ve Geliştirilebilirlik
+- Her servis için tests/ klasörü ve örnek testler
+- Servisler arası bağımlılık minimumda tutulur
+- Her servis kendi başına test edilebilir ve geliştirilebilir
+
+## Geleceğe Dönük Genişletilebilirlik
+- Yeni dosya tipleri için yeni parsing modülleri
+- Farklı chunking stratejileri kolayca entegre edilebilir
+- Embedding ve search servisleri yeni modeller ve vektör veritabanları ile genişletilebilir
+
+## Akış Diyagramı
+
+File Upload → file_parsing → chunking → embedding → search → LLM Prompt/Response 

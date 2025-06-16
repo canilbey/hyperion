@@ -164,3 +164,22 @@ class TextChunk(BaseModel):
     chunk_index: int
     text: str
     metadata: Optional[dict] = None
+
+class ParentChunk(BaseModel):
+    id: int
+    document_id: str
+    title: Optional[str] = None
+    content: str
+    order: Optional[int] = None
+    metadata: Optional[dict] = None
+    created_at: Optional[datetime] = None
+
+class ChildChunk(BaseModel):
+    id: int
+    parent_id: int
+    content: str
+    type: Optional[str] = None  # paragraph, code, table, etc.
+    order: Optional[int] = None
+    embedding: Optional[list] = None
+    metadata: Optional[dict] = None
+    created_at: Optional[datetime] = None

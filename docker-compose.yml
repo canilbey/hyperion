@@ -23,6 +23,7 @@ services:
       - JWT_EXPIRY_MINUTES=30
       - MILVUS_HOST=milvus
       - MILVUS_PORT=19530
+      - ELASTICSEARCH_HOST=elasticsearch:9200
     depends_on:
       db:
         condition: service_healthy
@@ -30,6 +31,8 @@ services:
         condition: service_healthy
       milvus:
         condition: service_started
+      elasticsearch:
+        condition: service_healthy
     networks:
       - hyperion-network
 
@@ -141,6 +144,22 @@ services:
       - "8001:3000"
     depends_on:
       - milvus
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - hyperion-network
 
 volumes:
   postgres_data:

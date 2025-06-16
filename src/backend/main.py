@@ -21,6 +21,11 @@ from backend.routers import embedding as embedding_router
 from backend.services.file.service import FileService
 from backend.services.milvus_service import MilvusService
 from typing import List
+from backend.services.chunker import Chunker
+from backend.routers.file_router import router as file_router
+from backend.routers.chunking_router import router as chunking_router
+from backend.routers.embedding_router import router as embedding_router
+from backend.routers.search_router import router as search_router
 
 # Configure logging
 logging.basicConfig(
@@ -66,7 +71,10 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-app.include_router(embedding_router.router, prefix="/embedding")
+app.include_router(file_router, prefix="/file", tags=["file"])
+app.include_router(chunking_router, prefix="/chunking", tags=["chunking"])
+app.include_router(embedding_router, prefix="/embedding", tags=["embedding"])
+app.include_router(search_router, prefix="/search", tags=["search"])
 
 @app.on_event("startup")
 async def startup():
@@ -129,31 +137,40 @@ async def upload_file(file: UploadFile = File(...)):
         from backend.services.file.service import FileService
         from backend.services.embedding_service import EmbeddingService
         from backend.services.milvus_service import MilvusService
-        
+        from backend.services.chunker import Chunker
+        import uuid
+
         file_service = FileService(file_config)
         embedding_service = EmbeddingService()
         milvus_service = MilvusService()
-        
+        chunker = Chunker()
+
         # Dosyayı kaydet ve parse et, metadata DB'ye yazılır
         result = await file_service.handle_file_upload(file, core_config.upload_dir, init_service.database)
         file_id = result.file_id
         file_path = os.path.join(core_config.upload_dir, file_id)
-        text_chunks = file_service.parse_file(file_id, file_path, result.content_type)
-        
-        # Parse edilen chunk'ları veritabanına kaydet
-        await file_service.save_text_chunks(init_service.database, text_chunks)
-        logger.info(f"[POST /upload] Saved {len(text_chunks)} text chunks to database")
-        
-        # Embedding generation ve vector storage
-        if text_chunks:
-            logger.info(f"[POST /upload] Starting embedding generation for {len(text_chunks)} chunks")
-            chunk_texts = [chunk.text for chunk in text_chunks]
-            embeddings = embedding_service.embed(chunk_texts)
-            for i, (chunk, embedding) in enumerate(zip(text_chunks, embeddings)):
-                metadata = f"file:{file_id}:chunk:{chunk.chunk_index}:filename:{result.filename}"
-                milvus_service.insert_embedding(embedding, metadata)
-            logger.info(f"[POST /upload] Generated and stored {len(embeddings)} embeddings in vector DB")
-        logger.info(f"[POST /upload] File uploaded, parsed and embedded successfully: {result}")
+        # Tüm metni oku
+        with open(file_path, 'r', encoding='utf-8') as f:
+            full_text = f.read()
+
+        # Parent chunk'lara böl
+        parent_chunks = chunker.split_to_parent_chunks(full_text)
+        parent_chunk_ids = []
+        for parent in parent_chunks:
+            # Parent chunk'ı veritabanına kaydet
+            # Varsayalım ki bir insert fonksiyonu var: file_service.save_parent_chunk(...)
+            parent_id = await file_service.save_parent_chunk(init_service.database, file_id, parent['title'], parent['content'], parent['order'])
+            parent_chunk_ids.append(parent_id)
+            # Child chunk'lara böl
+            child_chunks = chunker.split_to_child_chunks(parent)
+            # Her child chunk'ı veritabanına kaydet
+            child_chunk_ids = []
+            for child in child_chunks:
+                child_id = await file_service.save_child_chunk(init_service.database, parent_id, child['content'], child.get('type'), child.get('order'))
+                child_chunk_ids.append(child_id)
+            # Embedding ve Milvus'a ekleme
+            embedding_service.embed_and_store_child_chunks(child_chunks, milvus_service, parent_id)
+        logger.info(f"[POST /upload] File uploaded, chunked, embedded successfully: {result}")
         return result
     except Exception as e:
         logger.error(f"[POST /upload] File upload failed: {str(e)}")

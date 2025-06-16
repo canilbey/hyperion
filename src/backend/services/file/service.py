@@ -2,24 +2,31 @@ import logging
 import os
 import uuid
 from typing import Optional
-from backend.models import FileUploadResponse, TextChunk, FileMetadata
-from .config import FileConfig  # Added import for FileConfig
-import PyPDF2
+from datetime import datetime, timezone
+from backend.models import FileUploadResponse
+from .config import FileConfig
 from databases import Database
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 import json
-from backend.services.embedding_service import EmbeddingService
+from backend.services.embedding.model_loader import load_embedding_model
+from backend.services.embedding.pipeline import embed_chunks
+from backend.services.file.unstructured_adapter import parse_document
+from backend.services.chunking.parent_child_chunker import chunk_elements
 from backend.services.milvus_service import MilvusService
+from backend.services.evaluation.logger import log_search
 
 class FileService:
     def __init__(self, config: FileConfig):
         self.config = config
         self.logger = logging.getLogger(__name__)
-        self.embedding_service = EmbeddingService()
 
     async def handle_file_upload(self, file, upload_dir: str, db: Database, user_id: Optional[str] = None) -> FileUploadResponse:
-        """Handle file upload with validation, parsing, chunking, embedding ve Milvus insert"""
+        """Yeni pipeline: unstructured + parent-child chunking + embedding + Milvus + detaylı loglama"""
         try:
+            # Safe filename encoding - EN BAŞTA TANIMLA
+            safe_filename = file.filename
+            if isinstance(safe_filename, str):
+                safe_filename = safe_filename.encode('utf-8', errors='ignore').decode('utf-8')
+            
             # Validate file type
             if file.content_type not in self.config.allowed_types:
                 raise ValueError(f"Unsupported file type: {file.content_type}")
@@ -35,162 +42,127 @@ class FileService:
             with open(file_path, "wb") as f:
                 f.write(contents)
 
-            # --- Dosya parsing işlemi ---
-            text_chunks = self.parse_file(file_id, file_path, file.content_type)
-            self.logger.info(f"Parsed {len(text_chunks)} text chunks from uploaded file {file.filename}")
+            # --- Yeni pipeline ---
+            elements = parse_document(file_path)
+            parent_chunks, child_chunks = chunk_elements(elements)
 
-            # Chunk toplam boyutunu hesapla
-            chunked_total_size = sum(len(chunk.text.encode("utf-8")) for chunk in text_chunks)
-            num_chunks = len(text_chunks)
+            # Parent chunk'ları kaydet
+            parent_id_map = {}
+            for parent in parent_chunks:
+                insert_query = """
+                INSERT INTO parent_chunks (document_id, title, content, "order", metadata)
+                VALUES (:document_id, :title, :content, :order, :metadata)
+                RETURNING id
+                """
+                # Safe JSON serialization
+                safe_title = parent["title"]
+                safe_content = parent["content"]
+                if isinstance(safe_title, str):
+                    safe_title = safe_title.encode('utf-8', errors='ignore').decode('utf-8')
+                if isinstance(safe_content, str):
+                    safe_content = safe_content.encode('utf-8', errors='ignore').decode('utf-8')
+                
+                values = {
+                    "document_id": file_id,
+                    "title": safe_title,
+                    "content": safe_content,
+                    "order": parent["order"],
+                    "metadata": json.dumps(parent.get("metadata", {}), ensure_ascii=True)
+                }
+                row = await db.fetch_one(insert_query, values)
+                parent_id = row[0] if row else None
+                parent_id_map[parent["id"]] = parent_id
 
-            # Metadata'yı files tablosuna ekle
-            insert_query = """
-            INSERT INTO files (file_id, original_filename, content_type, original_size, num_chunks, chunked_total_size, user_id)
-            VALUES (:file_id, :original_filename, :content_type, :original_size, :num_chunks, :chunked_total_size, :user_id)
-            RETURNING upload_time
-            """
-            values = {
-                "file_id": file_id,
-                "original_filename": file.filename,
-                "content_type": file.content_type,
-                "original_size": len(contents),
-                "num_chunks": num_chunks,
-                "chunked_total_size": chunked_total_size,
-                "user_id": user_id
-            }
-            row = await db.fetch_one(insert_query, values)
-            upload_time = row[0] if row else None
+            # Child chunk'ları kaydet
+            for child in child_chunks:
+                insert_query = """
+                INSERT INTO child_chunks (parent_id, content, type, "order", metadata)
+                VALUES (:parent_id, :content, :type, :order, :metadata)
+                RETURNING id
+                """
+                # Safe child content encoding
+                safe_child_content = child["content"]
+                if isinstance(safe_child_content, str):
+                    safe_child_content = safe_child_content.encode('utf-8', errors='ignore').decode('utf-8')
+                
+                values = {
+                    "parent_id": parent_id_map[child["parent_id"]],
+                    "content": safe_child_content,
+                    "type": child.get("type"),
+                    "order": child.get("order"),
+                    "metadata": json.dumps(child.get("metadata", {}), ensure_ascii=True)
+                }
+                row = await db.fetch_one(insert_query, values)
+                child["db_id"] = row[0] if row else None
 
-            # --- Embedding ve Milvus insert otomatik ---
+            # Child chunk embedding ve Milvus'a ekleme
+            embedding_model = load_embedding_model("paraphrase-multilingual-MiniLM-L12-v2")
+            embeddings = embed_chunks(child_chunks, model_name="paraphrase-multilingual-MiniLM-L12-v2")
             milvus_service = MilvusService()
-            await self.embed_and_insert_chunks(db, milvus_service, text_chunks)
+            for child, embedding in zip(child_chunks, embeddings):
+                metadata = {
+                    "parent_id": parent_id_map[child["parent_id"]],
+                    "type": child.get("type"),
+                    "order": child.get("order"),
+                    "metadata": child.get("metadata", {})
+                }
+                # Safe metadata for Milvus
+                try:
+                    safe_metadata_str = json.dumps(metadata, ensure_ascii=True)
+                except Exception as e:
+                    # Fallback metadata if JSON serialization fails
+                    safe_metadata_str = json.dumps({
+                        "parent_id": metadata.get("parent_id", "unknown"),
+                        "type": str(metadata.get("type", "text")),
+                        "order": metadata.get("order", 0),
+                        "encoding_error": str(e)
+                    }, ensure_ascii=True)
+                
+                milvus_service.insert_embedding(embedding, safe_metadata_str)
 
+            # Detaylı loglama - safe metadata
+            try:
+                safe_log_metadata = {
+                    "file_id": file_id,
+                    "filename": safe_filename,
+                    "parent_chunks_count": len(parent_chunks),
+                    "child_chunks_count": len(child_chunks),
+                    "embeddings": len(embeddings)
+                }
+                log_search(
+                    query="[UPLOAD]",
+                    results=[],
+                    metadata=safe_log_metadata
+                )
+            except Exception as log_error:
+                self.logger.warning(f"Logging failed: {str(log_error)}")
+
+            # Safe chunk size calculation
+            safe_total_size = 0
+            for c in child_chunks:
+                try:
+                    content = c.get("content", "")
+                    # Clean content aynı embedding pipeline'daki gibi
+                    if isinstance(content, str):
+                        # Sadece güvenli karakterleri tut
+                        clean_content = ''.join(char for char in content if ord(char) < 127 or char.isalnum() or char.isspace())
+                        safe_total_size += len(clean_content.encode("utf-8", errors="ignore"))
+                    else:
+                        safe_total_size += len(str(content).encode("utf-8", errors="ignore"))
+                except Exception:
+                    # Hata durumunda estimate değer ekle
+                    safe_total_size += 100
+            
             return FileUploadResponse(
                 file_id=file_id,
-                filename=file.filename,
+                filename=safe_filename,
                 content_type=file.content_type,
                 size=len(contents),
-                num_chunks=num_chunks,
-                chunked_total_size=chunked_total_size,
-                upload_time=upload_time,
+                num_chunks=len(child_chunks),
+                chunked_total_size=safe_total_size,
+                upload_time=datetime.now(timezone.utc),
                 user_id=user_id
             )
         except Exception as e:
             self.logger.error(f"File upload failed: {str(e)}")
             raise
-
-    def parse_file(self, file_id: str, file_path: str, content_type: str):
-        """Dosya tipine göre uygun parser ile metin çıkarımı yapar ve TextChunk listesi döner."""
-        if content_type == "application/pdf":
-            return self.parse_pdf(file_id, file_path)
-        elif content_type == "text/plain":
-            return self.parse_txt(file_id, file_path)
-        else:
-            self.logger.warning(f"No parser implemented for content_type: {content_type}")
-            return []
-
-    def parse_pdf(self, file_id: str, file_path: str):
-        """PDF dosyasını semantic chunk'lara böler, sayfa numarası ve metadata ekler."""
-        chunks = []
-        try:
-            # PDF'ten tüm metni ve sayfa sınırlarını çıkar
-            with open(file_path, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
-                full_text = ""
-                page_offsets = []  # Her sayfanın metin içindeki başlangıç offseti
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text:
-                        page_offsets.append(len(full_text))
-                        full_text += text + "\n"
-                page_offsets.append(len(full_text))  # Son sayfanın bitişi
-            # LangChain ile semantic chunking
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=500,
-                chunk_overlap=50,
-                separators=["\n\n", "\n", ".", "!", "?", " "]
-            )
-            semantic_chunks = splitter.split_text(full_text)
-            # Her chunk'ın metin içindeki offsetini bul
-            current_offset = 0
-            for idx, chunk_text in enumerate(semantic_chunks):
-                # Preprocessing uygula
-                chunk_text = self.embedding_service.preprocess(chunk_text)
-                start_offset = full_text.find(chunk_text, current_offset)
-                if start_offset == -1:
-                    start_offset = current_offset  # fallback
-                end_offset = start_offset + len(chunk_text)
-                # Hangi sayfa/sayfalara denk geliyor?
-                start_page = None
-                end_page = None
-                for i in range(len(page_offsets)-1):
-                    if start_offset >= page_offsets[i] and start_offset < page_offsets[i+1]:
-                        start_page = i+1  # 1-based
-                    if end_offset > page_offsets[i] and end_offset <= page_offsets[i+1]:
-                        end_page = i+1
-                if start_page is None:
-                    start_page = 1
-                if end_page is None:
-                    end_page = len(page_offsets)-1
-                metadata = {
-                    "source": "pdf",
-                    "file_id": file_id,
-                    "chunk_index": idx,
-                    "original_page_numbers": list(range(start_page, end_page+1)),
-                    "chunk_start_offset": start_offset,
-                    "chunk_end_offset": end_offset
-                }
-                chunks.append(TextChunk(file_id=file_id, chunk_index=idx, text=chunk_text, metadata=metadata))
-                current_offset = end_offset
-        except Exception as e:
-            self.logger.error(f"PDF semantic chunking failed: {e}")
-        return chunks
-
-    def parse_txt(self, file_id: str, file_path: str):
-        """TXT dosyasını satır satır TextChunk olarak döndürür."""
-        chunks = []
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                for idx, line in enumerate(f):
-                    line = line.strip()
-                    if line:
-                        # Preprocessing uygula
-                        line = self.embedding_service.preprocess(line)
-                        chunks.append(TextChunk(file_id=file_id, chunk_index=idx, text=line))
-        except Exception as e:
-            self.logger.error(f"TXT parsing failed: {e}")
-        return chunks
-
-    async def save_text_chunks(self, db: Database, chunks: list[TextChunk]):
-        """TextChunk listesini veritabanına toplu ekler."""
-        if not chunks:
-            return
-        query = """
-        INSERT INTO text_chunks (file_id, chunk_index, text, metadata)
-        VALUES (:file_id, :chunk_index, :text, :metadata)
-        """
-        values = [
-            {
-                "file_id": c.file_id,
-                "chunk_index": c.chunk_index,
-                "text": c.text,
-                "metadata": json.dumps(c.metadata, ensure_ascii=False) if c.metadata is not None else None
-            }
-            for c in chunks
-        ]
-        await db.execute_many(query=query, values=values)
-        self.logger.info(f"Saved {len(chunks)} text chunks to database for file_id={chunks[0].file_id}")
-
-    async def embed_and_insert_chunks(self, db: Database, milvus_service, chunks: list[TextChunk]):
-        """Her chunk için embedding alıp Milvus'a JSON metadata ile kaydeder."""
-        embedding_service = EmbeddingService()
-        for chunk in chunks:
-            embedding = embedding_service.embed([chunk.text])[0]
-            metadata = {
-                "file_id": chunk.file_id,
-                "chunk_index": chunk.chunk_index,
-                "filename": getattr(chunk, 'filename', None),
-            }
-            if chunk.metadata:
-                metadata.update(chunk.metadata)
-            milvus_service.insert_embedding(embedding, json.dumps(metadata, ensure_ascii=False))

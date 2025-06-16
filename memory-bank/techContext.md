@@ -4,7 +4,15 @@ Tüm API uç noktaları, açıklamaları ve örnek kullanımlar için lütfen [d
 
 ---
 
-# Tech Context
+# Teknik Bağlam (Tech Context)
+
+- unstructured ile belge işleme ve parent-child chunking
+- Multilingual embedding modeli ile vektör üretimi (Milvus)
+- Hibrit arama: BM25 (örn. Elasticsearch) + vektör arama + cross-encoder reranking
+- Parent-child retrieval ve gelişmiş loglama
+- RAGAs ile otomatik değerlendirme ve sentetik test seti
+- Analitik veri gölü, dashboard ve A/B test altyapısı
+- Modül iskeleti: unstructured_adapter, parent_child_chunker, embedding pipeline, bm25_service, vector_service, fusion, rerank, hybrid_search, parent_child_retriever, ragas_adapter, logger, feedback, dashboard_api
 
 ## Temel Teknolojiler
 - **Backend**: Python 3.10+, FastAPI

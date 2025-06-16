@@ -23,4 +23,8 @@ tiktoken>=0.5.1
 sentence-transformers
 pymilvus
 PyPDF2>=3.0.0
-langchain>=0.1.0 
+langchain>=0.1.0
+unstructured[pdf,doc,excel,image,html]==0.12.4
+elasticsearch
+scikit-learn
+ragas 

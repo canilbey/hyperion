@@ -2,6 +2,15 @@
 
 ## 🆕 Son Gelişmeler
 
+- **✅ Unstructured Kütüphanesi Optimizasyonu:** Context7 MCP kullanarak en verimli unstructured kullanımını araştırdık ve uyguladık:
+  - `partition.auto` ile otomatik format tespiti
+  - Dosya boyutuna göre optimal strategy seçimi (fast/hi_res)
+  - PDF için özel optimizasyonlar (tablo/görsel çıkarımı devre dışı)
+  - Chunking parametreleri optimize edildi (by_title, max_characters=4000)
+  - Çoklu fallback sistemi (unstructured → PyPDF2 → text → manual)
+- **✅ libGL.so.1 hatası çözümü:** OpenCV bağımlılığından tamamen kaçınıldı.
+- **✅ Docker container optimizasyonu:** Minimal sistem kütüphaneleri + poppler-utils eklendi.
+- **✅ PDF parsing iyileştirmesi:** En doğru yöntem olarak unstructured partition.auto kullanılıyor.
 - **✅ Attu (Milvus Web UI) docker-compose ile projeye eklendi ve Milvus bağlantısı başarıyla sağlandı.** Artık vektör veritabanı görsel olarak yönetilebiliyor, koleksiyonlar ve vektörler Attu arayüzünden incelenip silinebiliyor.
 - **✅ Milvus bağlantı sorunları çözüldü:** Attu konteyneri için `MILVUS_URL=host.docker.internal:19530` ayarı ile bağlantı sağlandı.
 - **✅ Chat listesinde silme butonu ve anında chat başlatma:** Chat listesinde her sohbet için silme butonu eklendi, yeni bir konuşma başladığında chat ekranı anında açılıyor.
@@ -287,3 +296,10 @@
 - Eski mesajların otomatik özetlenmesi.
 - Kullanıcıya context window uyarısı.
 - Gelişmiş context ve RAG yönetimi stratejileri. 
+
+# Proje İlerleme Durumu (Progress)
+
+- Uzun vadeli hibrit arama ve gelişmiş RAG değerlendirme/loglama altyapısı planı oluşturuldu ve memory bank'e kaydedildi.
+- Mimari şema memory bank'te güncellendi.
+- Modül iskeleti oluşturuldu ve memory bank'e kaydedildi.
+- Sıradaki adım: unstructured entegrasyonu, embedding pipeline güncellemesi, hibrit arama ve gelişmiş loglama altyapısının uygulanması. 

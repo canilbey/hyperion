@@ -1,56 +1,51 @@
-# Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install build dependencies
+# Sistem bağımlılıkları (OpenCV ve unstructured için GL/X11 kütüphaneleri dahil)
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    libgl1-mesa-glx \
+    libgl1-mesa-dri \
+    libegl1-mesa \
+    libglvnd0 \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
+    libsm6 \
+    libfontconfig1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PyTorch CPU version first (avoid CUDA dependencies)
-RUN pip install --no-cache-dir --user \
+# PyTorch ve diğer ana bağımlılıklar
+RUN pip install --no-cache-dir \
     torch==2.7.1+cpu \
     torchvision==0.22.1+cpu \
     torchaudio==2.7.1+cpu \
     --index-url https://download.pytorch.org/whl/cpu
 
-# Copy requirements and install other Python dependencies
-COPY src/backend/requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Diğer Python bağımlılıkları
+COPY src/backend/requirements.txt ./
+# Sadece headless OpenCV kullan
+RUN pip uninstall -y opencv-python || true
+RUN pip install --no-cache-dir opencv-python-headless
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Runtime stage
-FROM python:3.11-slim as runtime
-
-WORKDIR /app
-
-# Install minimal runtime dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# Copy Python packages from builder stage
-COPY --from=builder /root/.local /root/.local
-
-# Copy the backend code
+# Backend kodunu kopyala
 COPY src/backend /app/backend
 
-# Set Python path to include the app directory and user packages
+# Ortam değişkenleri ve PATH
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
-ENV PATH=/root/.local/bin:$PATH
+ENV PATH=/usr/local/bin:$PATH
 
-# Create upload directory
+# Upload klasörü
 RUN mkdir -p /uploads && chmod 777 /uploads
 
-# Expose the port
+# Port ve healthcheck
 EXPOSE 8000
-
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application with health check endpoint and increased limits
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--limit-max-requests", "1000", "--timeout-keep-alive", "30"] 
+# Uygulamayı başlat
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--limit-max-requests", "1000", "--timeout-keep-alive", "30"] 

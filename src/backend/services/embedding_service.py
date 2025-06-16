@@ -32,4 +32,19 @@ class EmbeddingService:
             'all-MiniLM-L6-v2',
             'all-mpnet-base-v2',
             'paraphrase-MiniLM-L6-v2'
-        ] 
+        ]
+
+    def embed_and_store_child_chunks(self, child_chunks: List[dict], milvus_service, parent_id: int):
+        """
+        Her bir child chunk'ın embedding'ini alır ve parent_id, type, order, metadata ile birlikte Milvus'a ekler.
+        """
+        texts = [chunk['content'] for chunk in child_chunks]
+        embeddings = self.embed(texts)
+        for chunk, embedding in zip(child_chunks, embeddings):
+            metadata = {
+                'parent_id': parent_id,
+                'type': chunk.get('type'),
+                'order': chunk.get('order'),
+                'metadata': chunk.get('metadata')
+            }
+            milvus_service.insert_embedding(embedding, metadata) 
