@@ -78,20 +78,18 @@
 ## 🚧 Devam Eden Çalışmalar
 
 ### Frontend Development
-- **�� React frontend** - UI/UX geliştirme
-- **📋 API integration** - Backend ile frontend bağlantısı
-- **📋 File upload UI** - Drag & drop interface
-- **📋 Chat interface** - Real-time messaging
+- **✅ React frontend** - UI/UX geliştirme
+- **✅ API integration & state management** - MVP düzeyinde tamamlandı
+- **✅ File upload UI** - Drag & drop interface
+- **✅ Chat interface** - Real-time messaging
 - **Yeni:**
     - Sidebar: Model yönetimi, dosya yönetimi, yeni chat, chat listesi
     - Ana içerik: Tab'lı yapı (Chat, Model Yönetimi, Dosya Yönetimi)
     - Chat tabında sadece model seçimi ve chat alanı
     - Modern, minimal, responsive component breakdown
 - **🟧 Son Durum:**
-    - Docker Compose ile container'lar başlatıldı.
-    - Frontend ve backend servisleri çalışıyor ancak entegrasyonda hâlâ problemler mevcut.
-    - File management sistemi teknik olarak çalışıyor, ancak arayüzde UX/UI problemleri mevcut. Sidebar'da sade liste, ana panelde akordiyon detay, silme butonu için uygun ikon ve responsive tasarım gibi iyileştirmeler yapılmalı.
-    - **Chat servisi:** Chat silme, başlık düzenleme ve geçmiş gösterimi UI'da düzgün çalışmıyor/görünmüyor. Chat arayüzü ve backend entegrasyonu öncelikli geliştirme gerektiriyor.
+    - Chat silme ve geçmiş gösterimi UI'da düzgün çalışıyor, yalnızca başlık düzenleme eksik.
+    - Diğer frontend alanları tamamlandı.
     - Karşılaşılan tipik sorunlar: build hataları (örn. package.json, build script, dist/build farkı), port çakışmaları, API endpoint uyumsuzlukları, bağlantı ve erişim hataları.
     - Çözüm önerileri ve yapılan düzeltmeler memory-bank'te güncelleniyor.
 - **🟧 Yeni Gözlemlenen Problemler ve Öncelikli Geliştirme Adımları:**
@@ -303,3 +301,116 @@
 - Mimari şema memory bank'te güncellendi.
 - Modül iskeleti oluşturuldu ve memory bank'e kaydedildi.
 - Sıradaki adım: unstructured entegrasyonu, embedding pipeline güncellemesi, hibrit arama ve gelişmiş loglama altyapısının uygulanması. 
+
+# Proje Düzenleme ve İyileştirme Planı (2024)
+
+## 1. Bağımlılık ve Dockerfile Optimizasyonu
+- Gereksiz ve çakışan paketlerin requirements.txt'den temizlenmesi
+- Sadece production için gerekli ana paketlerin bırakılması
+- Test/dev/lint bağımlılıklarının ayrılması (gerekirse requirements-dev.txt'ye taşınması)
+- Dockerfile'ın layer/cache dostu ve hızlı build edecek şekilde optimize edilmesi
+- Poppler, tesseract, NLTK gibi ek sistem bağımlılıklarının doğru sırada kurulması
+- Numpy, packaging, langchain, unstructured gibi paketlerin uyumlu sürümlerinin sabitlenmesi
+
+## 2. Dosya İşleme ve Performans İyileştirmeleri
+- Unstructured ile PDF işleme sırasında encoding hatalarının önlenmesi (dosya okuma/decode işlemlerinin gözden geçirilmesi)
+- PDF işleme hızının artırılması:
+    - Varsayılan olarak fast/auto strategy kullanılması
+    - OCR'ın sadece gerektiğinde (görsel tabanlı PDF) devreye alınması
+    - Dosya boyutu ve sayfa sayısına göre dinamik işleme stratejisi belirlenmesi
+- Dosya yükleme ve chunking pipeline'ında loglama ve hata yönetiminin iyileştirilmesi
+
+## 3. Kod Temizliği ve Modülerlik
+- Gereksiz veya tekrar eden kodların temizlenmesi
+- Parametrelerin fonksiyonlara tekil ve doğru şekilde aktarılması (ör. infer_table_structure hatası gibi)
+- Testlerin ayrıştırılması ve test bağımlılıklarının izole edilmesi
+- Kodun okunabilirliğinin ve sürdürülebilirliğinin artırılması
+
+## 4. Dokümantasyon ve Süreç Takibi
+- README.md ve progress.md dosyalarının güncellenmesi
+    - Son yapılan değişikliklerin ve mevcut mimarinin net şekilde aktarılması
+    - Bilinen sorunlar ve çözüm önerilerinin eklenmesi
+    - Kullanım ve deploy talimatlarının sadeleştirilmesi
+- Geliştirici onboarding'i için kısa bir "Nasıl başlarım?" rehberi eklenmesi
+
+## 5. İzleme ve Gelişmiş Loglama
+- Dosya işleme, chunking ve embedding pipeline'larında detaylı loglama
+- Hataların ve yavaş noktaların kolayca tespit edilebilmesi için temel metriklerin eklenmesi
+
+## 6. Sonraki Adımlar ve Geliştirme
+- RAG pipeline'ının uçtan uca test edilmesi
+- Frontend-backend entegrasyonunun stabil çalıştığının doğrulanması
+- Geliştirici ve kullanıcıdan gelen yeni hata/feature taleplerinin backlog'a eklenmesi
+
+### Öncelik Sıralaması
+1. Bağımlılık ve Dockerfile optimizasyonunun tamamlanması
+2. Dosya işleme ve performans iyileştirmeleri
+3. Kod temizliği ve modülerlik
+4. Dokümantasyonun güncellenmesi
+5. İzleme ve loglama eklenmesi
+6. Sonraki adımların planlanması ve backlog'un güncellenmesi 
+
+### Backend
+- **✅ Endpointler (GET /files, model CRUD vb.)** - MVP için yeterli düzeyde mevcut
+- **🟧 Diğer eksikler ve iyileştirmeler** - Devam ediyor (dosya işleme pipeline'ında encoding ve hız iyileştirmeleri, hybrid search, semantic filtering, A/B test, gelişmiş loglama ve monitoring henüz tam entegre değil) 
+
+## 🚧 v0.4 Planlanan Geliştirmeler
+
+### Dosya Yükleme ve İşleme Sırasında Progress Feedback
+- Kullanıcıya dosya yükleme ve işleme pipeline'ında adım adım ilerleme gösterecek progress feedback sistemi eklenecek.
+- Backend'de her upload işlemi için pipeline adımlarında progress objesi güncellenecek (örn. Redis veya memory).
+- Progress sorgulama endpoint'i (GET /upload/status/{file_id}) eklenecek.
+- Frontend'de progress bar ve adım adım durum göstergesi ile kullanıcıya anlık bilgi verilecek.
+- Gelişmiş UX için WebSocket/SSE ile gerçek zamanlı bildirim opsiyonu değerlendirilecek.
+- Bu özellik v0.4 ile birlikte devreye alınacak, v0.3'te mevcut değildir. 
+
+# PDF Extraction & Chunking Migration Planı (Unstructured'dan Tamamen Çıkış)
+
+## 1. Unstructured Bağımlılığını ve Kodunu Tespit Et
+- requirements.txt ve requirements.txt.backup dosyalarında `unstructured` ve ilgili alt paketleri (unstructured[all], unstructured[local-inference], vs.) kaldırılacak.
+- src/backend/services/file/unstructured_adapter.py ve diğer dosyalarda:
+  - `from unstructured...` ile başlayan tüm importlar kaldırılacak.
+  - `partition_pdf`, `partition_docx`, `partition_html`, `partition`, `partition_text` gibi fonksiyon çağrıları kaldırılacak.
+  - Unstructured'a özel chunking, cleaning, extraction fonksiyonları kaldırılacak.
+
+## 2. Koddan Unstructured'ı Kaldır
+- requirements.txt ve varsa Dockerfile'dan unstructured ile ilgili satırlar silinecek.
+- unstructured_adapter.py dosyası tamamen kaldırılacak veya PyMuPDF/pdfplumber tabanlı yeni extraction fonksiyonları ile değiştirilecek.
+- Diğer modüllerde (ör. service.py, parent_child_chunker.py) unstructured fonksiyonlarına yapılan tüm çağrılar kaldırılacak veya refactor edilecek.
+
+## 3. Yeni Hibrit Extraction/Chunking Pipeline'ı
+- **TOC Extraction:** PyMuPDF (`fitz`) ile `doc.get_toc()` kullanılarak nested başlık-parent-child yapısı çıkarılacak.
+- **Başlık ve Paragraf Extraction:** PyMuPDF ile sayfa, blok, font, bold, numaralandırma analizine dayalı başlık tespiti yapılacak. Başlıklar parent, altındaki paragraflar/cümleler child olarak atanacak.
+- **Tablo, Görsel, Liste Extraction:** pdfplumber ile tablo (`page.extract_tables()`), görsel (`page.images`), liste ve paragraf extraction yapılacak. Tablolar ve görseller ilgili parent başlık altına child olarak eklenecek.
+- **Fallback:** Hiç başlık yoksa, her sayfa parent chunk olarak atanacak, altındaki tüm metin blokları child olarak eklenecek.
+
+## 4. Kodda Değişiklik Yapılacak Dosyalar
+- requirements.txt: unstructured ve alt bağımlılıkları kaldırılacak, pymupdf, pdfplumber, camelot, tabula gibi yeni bağımlılıklar eklenecek.
+- Dockerfile: Gerekirse yeni bağımlılıklar için sistem paketleri eklenecek (ör. poppler-utils, ghostscript).
+- src/backend/services/file/unstructured_adapter.py: Dosya tamamen kaldırılacak veya yeni extraction fonksiyonları ile değiştirilecek.
+- src/backend/services/file/service.py: `parse_document` fonksiyonu yeni adapter'a yönlendirilecek. Unstructured'a özel kodlar kaldırılacak.
+- src/backend/services/chunking/parent_child_chunker.py: Başlık tespiti ve parent-child mapping fonksiyonları yeni extraction yapısına göre güncellenecek.
+- Testler: Extraction ve chunking testleri yeni pipeline'a göre güncellenecek.
+
+## 5. Yeni Extraction Adapter (Örnek Akış)
+- PyMuPDF ile TOC extraction ve başlık-parent-child mapping
+- pdfplumber ile tablo, görsel, paragraf extraction
+- Kodun modüler ve kolay değiştirilebilir olması sağlanacak
+
+## 6. Test ve Validasyon
+- Yeni extraction pipeline ile örnek PDF'lerde başlık-parent-child hiyerarşisi, paragraf, tablo, görsel, liste extraction, chunk mapping ve DB insert işlemleri test edilecek.
+- Tüm extraction fonksiyonlarının unit ve entegrasyon testleri güncellenecek.
+
+## 7. Dokümantasyon ve README Güncellemesi
+- README.md ve docs/ altında extraction pipeline'ın yeni akışı, kullanılan kütüphaneler ve örnek kodlar güncellenecek.
+- Eski Unstructured'a dair tüm referanslar kaldırılacak.
+
+## 8. Geriye Dönük Uyumluluk ve Temizlik
+- Eski migration fonksiyonları ve Unstructured'a dair helper'lar tamamen silinecek.
+- Gerekirse eski extraction sonuçları yeni pipeline ile yeniden üretilecek.
+
+---
+
+## Notlar
+- Unstructured ile yapılması planlanan tüm değişiklikler ve referanslar bu migration ile kaldırılmıştır.
+- Yeni extraction pipeline tamamen açık kaynak ve sürdürülebilir kütüphanelerle (PyMuPDF, pdfplumber, vs.) kurulacaktır. 

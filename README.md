@@ -6,6 +6,13 @@ Hyperion, kullanıcıların belge yükleyip, bu belgelerden LLM (Large Language 
 
 Karmaşık ve büyük belge koleksiyonlarından, LLM destekli, güncel ve bağlama duyarlı bilgiye hızlıca erişim sağlamak için geliştirilmiştir. Model bazlı bilgi havuzları ve belge tabanlı sohbet deneyimi sunar.
 
+**RAG Pipeline Genel Akışı:**
+- Kullanıcıdan gelen sorgu embedding'e dönüştürülür.
+- Milvus vektör veritabanında en yakın chunk'lar bulunur.
+- Chunk'ların parent başlık ve içerikleri veritabanından çekilir.
+- Bağlam listesi hazırlanır ve LLM'e prompt olarak sunulur.
+- (Opsiyonel) Hybrid search ile BM25 + vektör arama birleştirilebilir, cross-encoder ile yeniden sıralama yapılabilir.
+
 ---
 
 ## Kullanılan Teknolojiler
@@ -92,6 +99,30 @@ curl -X POST http://localhost:8000/upload \
 - **POST /embedding/embed**
 - **POST /embedding/search**
 
+**RAG Arama Pipeline'ı Teknik Akışı:**
+1. Kullanıcı sorgusu normalize edilip embedding'e dönüştürülür.
+2. Milvus'ta vektör arama ile en yakın child chunk'lar bulunur.
+3. Parent chunk'lar veritabanından çekilir, başlık ve içerik eklenir.
+4. Bağlam listesi hazırlanır ve LLM'e prompt olarak sunulur.
+5. (Opsiyonel) Hybrid search: BM25 + vektör arama + fusion + cross-encoder ile yeniden sıralama.
+
+```mermaid
+flowchart TD
+    A["Kullanıcı Sorgusu"] --> B["Preprocessing & Embedding"]
+    B --> C["Milvus'ta Vektör Arama"]
+    C --> D["Child Chunk Sonuçları"]
+    D --> E["Parent Chunk'ları DB'den Getir"]
+    E --> F["Context Listesi Hazırla"]
+    F --> G["Prompt Oluştur"]
+    G --> H["LLM'e Gönder"]
+    subgraph Hybrid Search [Opsiyonel Hybrid Pipeline]
+        B2["BM25 Arama"] --> F2["Fusion"]
+        C2["Vektör Arama"] --> F2
+        F2 --> R["Cross-Encoder Rerank"]
+        R --> F
+    end
+```
+
 #### 5. Healthcheck
 - **GET /api/health**
 
@@ -104,6 +135,7 @@ curl -X POST http://localhost:8000/upload \
 - Frontend temel iskeleti
 - Milvus, Redis, PostgreSQL entegrasyonları
 - File parsing pipeline'ı (PDF ve TXT desteği)
+- **RAG pipeline ile embedding tabanlı ve hybrid arama desteği**
 - Otomatik test altyapısı (pytest, docker-compose.test.yml)
 - API key ile korunan endpointler ve dosya yükleme için otomatik testler
 

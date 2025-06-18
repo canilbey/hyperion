@@ -28,4 +28,14 @@ To build a modular, scalable, and secure platform for chat-based document retrie
 - End-to-end chat and document retrieval workflows function reliably
 - System meets performance, security, and scalability targets
 - Monitoring and alerting provide actionable insights
-- Documentation and tests cover all major components 
+- Documentation and tests cover all major components
+
+## v0.4 Yol Haritası ve Planlanan Özellikler
+
+### Dosya Yükleme ve İşleme Sırasında Progress Feedback
+- Kullanıcıya dosya yükleme ve işleme pipeline'ında adım adım ilerleme gösterecek progress feedback sistemi eklenecek.
+- Backend'de her upload işlemi için pipeline adımlarında progress objesi güncellenecek (örn. Redis veya memory).
+- Progress sorgulama endpoint'i (GET /upload/status/{file_id}) eklenecek.
+- Frontend'de progress bar ve adım adım durum göstergesi ile kullanıcıya anlık bilgi verilecek.
+- Gelişmiş UX için WebSocket/SSE ile gerçek zamanlı bildirim opsiyonu değerlendirilecek.
+- Bu özellik v0.4 ile birlikte devreye alınacak, v0.3'te mevcut değildir. 

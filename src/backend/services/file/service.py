@@ -9,10 +9,11 @@ from databases import Database
 import json
 from backend.services.embedding.model_loader import load_embedding_model
 from backend.services.embedding.pipeline import embed_chunks
-from backend.services.file.unstructured_adapter import parse_document
 from backend.services.chunking.parent_child_chunker import chunk_elements
 from backend.services.milvus_service import MilvusService
 from backend.services.evaluation.logger import log_search
+import traceback
+from backend.services.file.pdf_adapter import extract_pdf_document
 
 class FileService:
     def __init__(self, config: FileConfig):
@@ -23,9 +24,12 @@ class FileService:
         """Yeni pipeline: unstructured + parent-child chunking + embedding + Milvus + detaylı loglama"""
         try:
             # Safe filename encoding - EN BAŞTA TANIMLA
-            safe_filename = file.filename
-            if isinstance(safe_filename, str):
-                safe_filename = safe_filename.encode('utf-8', errors='ignore').decode('utf-8')
+            try:
+                safe_filename = safe_utf8(file.filename)
+            except Exception as e:
+                self.logger.error(f"Filename decode error: {e}, filename: {file.filename}")
+                traceback.print_exc()
+                safe_filename = "ERROR"
             
             # Validate file type
             if file.content_type not in self.config.allowed_types:
@@ -43,8 +47,9 @@ class FileService:
                 f.write(contents)
 
             # --- Yeni pipeline ---
-            elements = parse_document(file_path)
-            parent_chunks, child_chunks = chunk_elements(elements)
+            parent_chunks, child_chunks = extract_pdf_document(file_path)
+            # Parent chunk'ların content'ini child chunk'ların birleştirilmiş metniyle doldur
+            parent_chunks = fill_parent_chunk_content(parent_chunks, child_chunks)
 
             # Parent chunk'ları kaydet
             parent_id_map = {}
@@ -54,14 +59,9 @@ class FileService:
                 VALUES (:document_id, :title, :content, :order, :metadata)
                 RETURNING id
                 """
-                # Safe JSON serialization
-                safe_title = parent["title"]
-                safe_content = parent["content"]
-                if isinstance(safe_title, str):
-                    safe_title = safe_title.encode('utf-8', errors='ignore').decode('utf-8')
-                if isinstance(safe_content, str):
-                    safe_content = safe_content.encode('utf-8', errors='ignore').decode('utf-8')
-                
+                safe_title = safe_utf8(parent["title"])
+                # Parent content'i zaten fill_parent_chunk_content ile güvenli
+                safe_content = safe_utf8(parent["content"])
                 values = {
                     "document_id": file_id,
                     "title": safe_title,
@@ -80,11 +80,15 @@ class FileService:
                 VALUES (:parent_id, :content, :type, :order, :metadata)
                 RETURNING id
                 """
-                # Safe child content encoding
-                safe_child_content = child["content"]
-                if isinstance(safe_child_content, str):
-                    safe_child_content = safe_child_content.encode('utf-8', errors='ignore').decode('utf-8')
-                
+                # Safe child content encoding ve filtreleme
+                try:
+                    safe_child_content = safe_utf8(child["content"])
+                except Exception as e:
+                    self.logger.error(f"Child chunk decode error: {e}, content: {child['content']}")
+                    traceback.print_exc()
+                    safe_child_content = "ERROR"
+                if not safe_child_content or not safe_child_content.strip() or not all(c.isprintable() for c in safe_child_content):
+                    continue  # Boş veya bozuk içerik kaydetme
                 values = {
                     "parent_id": parent_id_map[child["parent_id"]],
                     "content": safe_child_content,
@@ -153,9 +157,36 @@ class FileService:
                     # Hata durumunda estimate değer ekle
                     safe_total_size += 100
             
+            # Dosya metadata'sını files tablosuna ekle
+            try:
+                insert_query = """
+                INSERT INTO files (file_id, original_filename, content_type, original_size, num_chunks, chunked_total_size, upload_time, user_id)
+                VALUES (:file_id, :original_filename, :content_type, :original_size, :num_chunks, :chunked_total_size, :upload_time, :user_id)
+                """
+                try:
+                    safe_filename = safe_ascii_filename(file.filename)
+                except Exception as e:
+                    self.logger.error(f"Files table filename decode error: {e}, filename: {file.filename}")
+                    traceback.print_exc()
+                    safe_filename = "ERROR_FILENAME"
+                values = {
+                    "file_id": file_id,
+                    "original_filename": safe_filename,
+                    "content_type": file.content_type,
+                    "original_size": len(contents),
+                    "num_chunks": len(child_chunks),
+                    "chunked_total_size": safe_total_size,
+                    "upload_time": datetime.now(timezone.utc),
+                    "user_id": user_id
+                }
+                await db.execute(insert_query, values)
+            except Exception as e:
+                self.logger.error(f"Files table insert error: {e}, values: {values}")
+                traceback.print_exc()
+
             return FileUploadResponse(
                 file_id=file_id,
-                filename=safe_filename,
+                filename=safe_ascii_filename(file.filename),
                 content_type=file.content_type,
                 size=len(contents),
                 num_chunks=len(child_chunks),
@@ -166,3 +197,22 @@ class FileService:
         except Exception as e:
             self.logger.error(f"File upload failed: {str(e)}")
             raise
+
+def fill_parent_chunk_content(parent_chunks, child_chunks):
+    """
+    Her parent chunk'ın content alanını, o parent'a bağlı child chunk'ların content'lerinin birleştirilmiş haliyle doldurur.
+    """
+    parent_map = {p["id"]: p for p in parent_chunks}
+    for p in parent_chunks:
+        p["content"] = "\n".join([c["content"] for c in child_chunks if c.get("parent_id") == p["id"] and c.get("content")])
+    return parent_chunks
+
+def safe_utf8(text):
+    try:
+        return text.encode("utf-8", errors="replace").decode("utf-8")
+    except Exception:
+        return ""
+
+def safe_ascii_filename(filename):
+    import re
+    return re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
