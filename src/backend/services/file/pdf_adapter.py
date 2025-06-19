@@ -2,6 +2,7 @@ import fitz  # PyMuPDF
 import pdfplumber
 import re
 import nltk
+import logging
 
 def build_toc_hierarchy(toc):
     """
@@ -142,7 +143,8 @@ def extract_tables_and_images(file_path, parent_chunks):
             # Tablo extraction
             tables = page.extract_tables()
             for t_idx, table in enumerate(tables):
-                content = '\n'.join(['\t'.join(row) for row in table if row])
+                # Her hücreyi stringe çevir, None ise '' yap
+                content = '\n'.join(['\t'.join([str(cell) if cell is not None else '' for cell in row]) for row in table if row])
                 parent_id = find_parent_for_page(parent_chunks, page_num+1)
                 child_chunks.append({
                     "parent_id": parent_id,
@@ -155,13 +157,15 @@ def extract_tables_and_images(file_path, parent_chunks):
             images = page.images
             for i_idx, img in enumerate(images):
                 parent_id = find_parent_for_page(parent_chunks, page_num+1)
-                child_chunks.append({
-                    "parent_id": parent_id,
-                    "type": "image",
-                    "content": f"Image on page {page_num+1}, bbox: {img['bbox']}",
-                    "order": i_idx,
-                    "metadata": {"page": page_num+1, "bbox": img['bbox']}
-                })
+                bbox = img.get('bbox')
+                if bbox is not None:
+                    child_chunks.append({
+                        "parent_id": parent_id,
+                        "type": "image",
+                        "content": f"Image on page {page_num+1}, bbox: {bbox}",
+                        "order": i_idx,
+                        "metadata": {"page": page_num+1, "bbox": bbox}
+                    })
     return child_chunks
 
 def find_parent_for_page(parent_chunks, page):
@@ -198,6 +202,7 @@ def extract_lists(doc, parent_chunks):
     return child_chunks
 
 def extract_pdf_document(file_path):
+    logger = logging.getLogger(__name__)
     doc = fitz.open(file_path)
     toc = doc.get_toc()  # [ [level, title, page], ... ]
     parent_chunks = []
@@ -237,6 +242,13 @@ def extract_pdf_document(file_path):
     list_chunks = extract_lists(doc, parent_chunks)
     child_chunks.extend(list_chunks)
     doc.close()
+    # LOGGING: Parent ve child chunk sayısı ve örnekler
+    logger.info(f"[PDF PARSE] Parent chunk sayısı: {len(parent_chunks)}")
+    logger.info(f"[PDF PARSE] Child chunk sayısı: {len(child_chunks)}")
+    for i, parent in enumerate(parent_chunks[:3]):
+        logger.info(f"[PDF PARSE] Parent {i}: title='{parent.get('title')}', content='{parent.get('content','')[:80]}...'")
+    for i, child in enumerate(child_chunks[:3]):
+        logger.info(f"[PDF PARSE] Child {i}: parent_id={child.get('parent_id')}, type={child.get('type')}, content='{child.get('content','')[:80]}...'")
     return parent_chunks, child_chunks
 
 def is_title_like(text):

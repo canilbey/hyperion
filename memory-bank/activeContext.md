@@ -1,3 +1,16 @@
+# Hyperion - Güncel Durum ve Amaç
+
+## Projenin Amacı
+Hyperion, kullanıcıların belge yükleyip, bu belgelerden LLM destekli, bağlama duyarlı yanıtlar alabileceği, modüler ve ölçeklenebilir bir platformdur. Platformun temel hedefi, büyük ve karmaşık belge koleksiyonlarından hızlı, doğru ve bağlama uygun bilgiye erişimi mümkün kılmaktır.
+
+## Güncel Durum (2024-06)
+- Projede PDF parsing için unstructured kütüphanesinden custom parsing sistemine geçiş süreci başlatılmıştır.
+- Yeni custom sistemde, PyMuPDF (fitz) ve pdfplumber ile başlık, section, tablo, görsel, liste, cümle ve paragraf bazlı parent-child chunk extraction yapılmaktadır.
+- Her chunk'a detaylı metadata eklenmekte, fallback ve hata toleransı sağlanmaktadır.
+- RAG pipeline, frontend-backend entegrasyonu, model ve dosya yönetimi, modern React arayüzü ve production-ready mimari büyük ölçüde tamamlanmıştır.
+- Geliştirme odağı, gelişmiş belge işleme, kullanıcı deneyimi, performans optimizasyonu ve yeni özelliklerin entegrasyonuna kaymıştır.
+
+---
 # Active Context
 
 ## Şu Anki Odak
@@ -62,6 +75,52 @@
 - Large document processing için memory optimization planlanmalı
 - Frontend-backend integration için API documentation tamamlanmalı
 - User authentication ile document isolation entegrasyonu yapılmalı
+
+---
+# Teknik Yol Haritası ve Geliştirme Planı
+
+## 1. Başlık ve Section Algoritması
+- Regex + heuristic ile başlık tespiti, ML tabanlı section splitter araştırması.
+- PDF/HTML'de görsel ve yapısal ipuçları ile section extraction.
+- Parent chunk'lara section_level, section_type metadata eklenmesi.
+
+## 2. Index Optimizasyonu (PostgreSQL)
+- child_chunks(parent_id), parent_chunks(document_id) index'leri mevcut.
+- Ek olarak: child_chunks(type), parent_chunks(title), metadata için GIN index.
+- Büyük tablolarda partitioning ve düzenli VACUUM/ANALYZE.
+
+## 3. Milvus Index Tipi
+- Küçük veri için FLAT, büyük veri için IVF_FLAT, HNSW gibi index tipleri.
+- Parametre tuning (nlist, nprobe, efConstruction, efSearch).
+- Farklı index tiplerinde benchmark ve latency ölçümü.
+
+## 4. Upload Progress & Feedback
+- Frontend'de chunked upload ve progress bar.
+- Backend'de pipeline adımlarında progress event'leri (WebSocket/SSE/polling).
+- /upload/status/{file_id} endpoint'i ile anlık durum.
+
+## 5. Hybrid Search
+- BM25 (Elasticsearch) + Milvus vektör arama + skor fusion.
+- İlk 20 sonucu cross-encoder ile rerank.
+- /search/hybrid endpoint'i.
+
+## 6. Semantic Filtering
+- Dil tespiti, chunk tipi, minimum bilgi eşiği ile filtreleme.
+- Stopword/noise filtering.
+
+## 7. A/B Test Altyapısı
+- Kullanıcı/dosya bazında pipeline varyantı atama.
+- Her sorgu ve yanıt için varyant, skor, feedback loglama.
+- Sonuçları dashboard ile görselleştirme.
+
+## 8. Diğer Teknik Notlar
+- Tüm pipeline'da encoding ve text temizlik fonksiyonları zorunlu.
+- PDF gibi binary formatlarda asla text parser kullanılmıyor.
+- Her adımda fallback ve hata toleransı var.
+- Geliştirici ve kullanıcı deneyimi için monitoring, logging ve test otomasyonu öncelikli.
+
+---
+Bu yol haritası ve kayıtlar, Hyperion RAG platformunun sürdürülebilir ve ölçeklenebilir gelişimi için referans olarak kullanılacaktır.
 
 # activeContext - Güncel Durum ve Planlar
 

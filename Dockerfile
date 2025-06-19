@@ -12,10 +12,11 @@ RUN apt-get update && apt-get install -y \
 
 # Gereksiz tekrar kurulumları önlemek için önce requirements.txt'yi kopyala ve yükle
 COPY src/backend/requirements.txt ./
-RUN pip install -r requirements.txt
+# Docker 23+ ile pip cache mount (yoksa eski haliyle bırakılır)
+RUN --mount=type=cache,target=/root/.cache/pip pip install --prefer-binary --upgrade -r requirements.txt || pip install --prefer-binary --upgrade -r requirements.txt
 
-# NLTK averaged_perceptron_tagger_eng modelini indir
-RUN python -m nltk.downloader averaged_perceptron_tagger_eng
+# Sadece punkt modeli indir
+RUN python -m nltk.downloader punkt
 
 # Backend kodunu kopyala
 COPY src/backend /app/backend

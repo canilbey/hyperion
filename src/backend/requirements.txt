@@ -59,4 +59,5 @@ pypandoc==1.15
 nltk
 pillow
 pymupdf
-pdfplumber 
+pdfplumber
+huggingface_hub[hf_xet] 
