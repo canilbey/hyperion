@@ -3,6 +3,7 @@ import pdfplumber
 import re
 import nltk
 import logging
+from backend.services.chunking.chunker import paragraph_chunking
 
 def build_toc_hierarchy(toc):
     """
@@ -203,10 +204,27 @@ def extract_lists(doc, parent_chunks):
 
 def extract_pdf_document(file_path):
     logger = logging.getLogger(__name__)
-    doc = fitz.open(file_path)
+    try:
+        doc = fitz.open(file_path)
+    except Exception as e:
+        logger.error(f"PDF açılırken hata: {e}")
+        raise
+
     toc = doc.get_toc()  # [ [level, title, page], ... ]
     parent_chunks = []
     child_chunks = []
+
+    def clean_text(text):
+        if not text:
+            return ""
+        # Remove non-printable characters except newlines and tabs
+        text = ''.join(char for char in text if char.isprintable() or char in '\n\t')
+        # Replace multiple spaces with single space
+        text = re.sub(r'\s+', ' ', text)
+        # Replace multiple newlines with double newline
+        text = re.sub(r'\n\s*\n\s*\n*', '\n\n', text)
+        return text.strip()
+
     if toc:
         parent_chunks = build_toc_hierarchy(toc)
         for i, parent in enumerate(parent_chunks):
@@ -215,40 +233,116 @@ def extract_pdf_document(file_path):
             while next_idx < len(parent_chunks) and parent_chunks[next_idx]["level"] > parent["level"]:
                 next_idx += 1
             end = parent_chunks[next_idx]["page"] - 1 if next_idx < len(parent_chunks) else doc.page_count
+            
+            all_text = []
             for page_num in range(start, end):
-                page = doc[page_num]
-                blocks = page.get_text("blocks")
-                for block in blocks:
-                    text = block[4].strip()
-                    if text:
-                        parent_id = parent["id"]
-                        for sent in split_paragraphs_and_sentences(text):
-                            child_chunks.append({
-                                "parent_id": parent_id,
-                                "content": sent,
-                                "type": "Text",
-                                "order": len([c for c in child_chunks if c["parent_id"] == parent_id]),
-                                "metadata": {"page": page_num+1, "parent_title": parent["title"]}
-                            })
-    else:
-        parent_chunks, child_chunks = extract_headings_by_font_style(doc)
-    # Fallback: Eğer parent_chunks boşsa veya parent sayısı 1 ise (veya sadece default parent varsa), sayfa bazlı parent chunk oluştur
+                try:
+                    page = doc[page_num]
+                    page_text = page.get_text("text")
+                    if page_text:
+                        cleaned_text = clean_text(page_text)
+                        if cleaned_text:
+                            all_text.append(cleaned_text)
+                except Exception as e:
+                    logger.warning(f"Sayfa {page_num} okunurken hata: {e}")
+                    continue
+
+            joined_text = "\n".join(all_text)
+            cleaned_text = re.sub(r'(?<!\n)\n(?!\n)', ' ', joined_text)
+            
+            if not cleaned_text:
+                logger.warning(f"Parent {parent['id']} için metin çıkarılamadı")
+                continue
+
+            logger.info(f"[PDF PARSE] Parent {parent['id']} ('{parent['title']}') metin uzunluğu: {len(cleaned_text)} karakter (temizlenmiş)")
+            
+            try:
+                chunks = paragraph_chunking(cleaned_text, max_tokens=500, overlap_sentences=2, lang="turkish")
+                logger.info(f"[PDF PARSE] Parent {parent['id']} için {len(chunks)} chunk üretildi")
+                
+                for chunk in chunks:
+                    if not chunk["content"].strip():
+                        continue
+                    child_chunks.append({
+                        "parent_id": parent["id"],
+                        "content": chunk["content"],
+                        "type": "Text",
+                        "order": len([c for c in child_chunks if c["parent_id"] == parent["id"]]),
+                        "metadata": {"parent_title": parent["title"], **chunk["metadata"]}
+                    })
+            except Exception as e:
+                logger.error(f"Chunk oluşturulurken hata: {e}")
+                continue
+
     if not parent_chunks or len(parent_chunks) == 1:
-        parent_chunks, child_chunks = fallback_page_parents(doc)
-    # Tablo ve görselleri child olarak ekle
-    table_image_chunks = extract_tables_and_images(file_path, parent_chunks)
-    child_chunks.extend(table_image_chunks)
-    # Listeleri child olarak ekle
-    list_chunks = extract_lists(doc, parent_chunks)
-    child_chunks.extend(list_chunks)
+        try:
+            parent_chunks, _ = fallback_page_parents(doc)
+            for parent in parent_chunks:
+                page_num = parent["metadata"].get("page", 1) - 1
+                try:
+                    page = doc[page_num]
+                    page_text = page.get_text("text")
+                    cleaned_text = clean_text(page_text)
+                    
+                    if not cleaned_text:
+                        continue
+
+                    chunks = paragraph_chunking(cleaned_text, max_tokens=500, overlap_sentences=2, lang="turkish")
+                    
+                    for chunk in chunks:
+                        if not chunk["content"].strip():
+                            continue
+                        child_chunks.append({
+                            "parent_id": parent["id"],
+                            "content": chunk["content"],
+                            "type": "Text",
+                            "order": len([c for c in child_chunks if c["parent_id"] == parent["id"]]),
+                            "metadata": {"parent_title": parent["title"], **chunk["metadata"]}
+                        })
+                except Exception as e:
+                    logger.warning(f"Sayfa {page_num} işlenirken hata: {e}")
+                    continue
+        except Exception as e:
+            logger.error(f"Fallback page parents oluşturulurken hata: {e}")
+
+    try:
+        # Tablo ve görselleri child olarak ekle
+        table_image_chunks = extract_tables_and_images(file_path, parent_chunks)
+        child_chunks.extend(table_image_chunks)
+        
+        # Listeleri child olarak ekle
+        list_chunks = extract_lists(doc, parent_chunks)
+        child_chunks.extend(list_chunks)
+    except Exception as e:
+        logger.error(f"Tablo/görsel/liste çıkarılırken hata: {e}")
+
     doc.close()
-    # LOGGING: Parent ve child chunk sayısı ve örnekler
+    
+    # Son kontrol ve temizlik
+    parent_chunks = [p for p in parent_chunks if p.get("title", "").strip()]
+    child_chunks = [c for c in child_chunks if c.get("content", "").strip()]
+    
+    if not parent_chunks:
+        parent_chunks = [{
+            "id": 0,
+            "title": "Document Content",
+            "content": "",
+            "order": 0,
+            "metadata": {"section_level": 0, "section_type": "document"}
+        }]
+    
+    if not child_chunks:
+        child_chunks = [{
+            "parent_id": parent_chunks[0]["id"],
+            "content": "[No readable content found in document]",
+            "type": "Text",
+            "order": 0,
+            "metadata": parent_chunks[0]["metadata"].copy()
+        }]
+
     logger.info(f"[PDF PARSE] Parent chunk sayısı: {len(parent_chunks)}")
     logger.info(f"[PDF PARSE] Child chunk sayısı: {len(child_chunks)}")
-    for i, parent in enumerate(parent_chunks[:3]):
-        logger.info(f"[PDF PARSE] Parent {i}: title='{parent.get('title')}', content='{parent.get('content','')[:80]}...'")
-    for i, child in enumerate(child_chunks[:3]):
-        logger.info(f"[PDF PARSE] Child {i}: parent_id={child.get('parent_id')}, type={child.get('type')}, content='{child.get('content','')[:80]}...'")
+
     return parent_chunks, child_chunks
 
 def is_title_like(text):

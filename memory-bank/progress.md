@@ -414,3 +414,23 @@
 ## Notlar
 - Unstructured ile yapılması planlanan tüm değişiklikler ve referanslar bu migration ile kaldırılmıştır.
 - Yeni extraction pipeline tamamen açık kaynak ve sürdürülebilir kütüphanelerle (PyMuPDF, pdfplumber, vs.) kurulacaktır. 
+
+## 🚀 Yeni Planlanan Geliştirmeler (2025-06)
+
+### Paragraf Bazlı Chunking (500 Token Sınırı ve Bağlam Koruma)
+- Chunk'lar paragraf bazlı olacak şekilde güncellenecek.
+- Eğer bir paragraf 500 tokendan uzunsa, cümle bazında bölünecek.
+- Bölünen chunk'lar arasında son 1-2 cümle (veya 50-100 token) overlap olacak, böylece bağlam kopmayacak.
+- Her chunk'a orijinal paragraf numarası, chunk index'i, dosya adı, sayfa numarası gibi metadata eklenecek.
+- Token hesaplama için tiktoken veya benzeri bir tokenizer kullanılacak.
+- Farklı uzunluktaki paragraflarla test edilecek, chunk ve overlap'ler manuel olarak kontrol edilecek.
+
+### Hybrid Search (BM25 + Vektör Arama)
+- Chunk'lar, BM25 destekli bir arama motoruna (örn. Elasticsearch) da eklenecek.
+- Vektör embedding'ler Milvus'ta saklanmaya devam edecek.
+- Yeni bir `/search/hybrid` endpoint'i açılacak.
+- Kullanıcı sorgusu geldiğinde hem BM25 hem vektör arama yapılacak, ilk N sonuç alınacak.
+- Sonuçlar skor bazında normalize edilip birleştirilecek (fusion).
+- İlk 10-20 sonuç cross-encoder ile rerank edilebilecek.
+- Sonuçlar chunk metni, skor, kaynak ve metadata ile frontend'e dönecek.
+- Test için, aynı sorgu hem BM25, hem vektör, hem de hybrid ile çalıştırılıp sonuçlar karşılaştırılacak. 

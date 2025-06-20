@@ -30,4 +30,14 @@ export async function deleteChat(chat_id) {
   const res = await fetch(`${API_URL}/chats/${chat_id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Sohbet silinemedi');
   return res.json();
+}
+
+export async function hybridSearch({ query, top_k = 10 }) {
+  const res = await fetch(`${API_URL}/search/hybrid`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, top_k })
+  });
+  if (!res.ok) throw new Error('Hybrid arama başarısız');
+  return res.json();
 } 

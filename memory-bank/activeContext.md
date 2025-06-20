@@ -230,3 +230,81 @@ src/
 ## Akış Diyagramı
 
 File Upload → file_parsing → chunking → embedding → search → LLM Prompt/Response 
+
+## 2025-06-19: Paragraf Bazlı Chunking ve Hybrid Search Geliştirme Planı
+
+### Paragraf Bazlı Chunking
+- Chunk'lar paragraf bazlı olacak, 500 token sınırı uygulanacak.
+- Uzun paragraflar cümle bazında bölünecek, chunk'lar arasında son 1-2 cümle overlap olacak.
+- Token hesaplama için tiktoken veya benzeri tokenizer kullanılacak.
+- Her chunk'a detaylı metadata eklenecek.
+
+### Hybrid Search
+- BM25 (Elasticsearch) + Milvus vektör arama birlikte kullanılacak.
+- `/search/hybrid` endpoint'i ile hem BM25 hem vektör arama sonuçları alınacak.
+- Sonuçlar skor bazında normalize edilip birleştirilecek (fusion).
+- İlk 10-20 sonuç cross-encoder ile rerank edilebilecek.
+- Sonuçlar chunk metni, skor, kaynak ve metadata ile frontend'e dönecek. 
+
+## 2025-06-20: Advanced RAG - Semantic + Hybrid Search Pipeline Geliştirmesi
+
+### 1. Semantic Search Akışı
+- Kullanıcı sorgusu embedding'e dönüştürülüp Milvus'ta arama yapılır.
+- İlk etapta en iyi 5 child chunk alınır.
+- Eğer bu 5 child chunk'tan herhangi birinin similarity skoru 0.1'den büyükse:
+    - En yüksek skora sahip child chunk'ın parent'ı alınır.
+    - Bu parent chunk'ın içeriği LLM'ye (veya hybrid search karşılaştırmasına) gönderilir.
+- Eğer 5 sonuçtan hiçbiri 0.1'in üstünde değilse:
+    - En iyi 20 child chunk alınır.
+    - 0.08'in üstünde similarity skoruna sahip child chunk'lar arasından en iyi 3 tanesinin parent'ı seçilir.
+    - Ortak parent varsa, aynı parent tekrar tekrar işlenmez (her parent bir kez dahil edilir).
+- Seçilen parent chunk'ların içeriği, LLM'ye prompt olarak veya hybrid search karşılaştırmasına gönderilir.
+
+### 2. Hybrid Search Akışı
+- Kullanıcı sorgusu hem BM25 (Elasticsearch) hem de vektör arama (Milvus) ile sorgulanır.
+- BM25 ve vektör arama sonuçları normalize edilip fusion algoritması ile birleştirilir.
+- Semantic search pipeline'ından gelen parent chunk'lar, hybrid search karşılaştırmasına dahil edilir.
+- İlk 10-20 sonuç cross-encoder ile rerank edilebilir.
+- Sonuçlar chunk metni, skor, kaynak, dosya adı, sayfa numarası gibi metadata ile frontend'e döner.
+- Sonuçlarda parent chunk tekrarları engellenir, her parent sadece bir kez işlenir.
+
+### 3. Teknik Notlar ve Geliştirme Adımları
+- Milvus arama fonksiyonu, similarity threshold ve parent toplama mantığı ile güncellenecek.
+- Parent chunk retrieval ve tekrar engelleme için yardımcı fonksiyonlar eklenecek.
+- BM25/Elasticsearch entegrasyonu ve fusion algoritması geliştirilecek.
+- `/search/hybrid` endpoint'i ile yeni akış frontend'e açılacak.
+- Testler: Eşik değerleri, parent toplama, tekrar engelleme ve fusion mantığı için birim ve entegrasyon testleri yazılacak. 
+
+## Current Limitations & Future Improvements
+
+### OCR Integration Need
+- Mevcut sistem sadece metin tabanlı PDF'leri işleyebiliyor
+- Taranan belgeler ve görüntü bazlı PDF'ler için OCR gerekiyor
+- Özellikle eski dokümanlar ve resmi belgeler için önemli
+
+### Planned Solution
+1. **Phase 1: Tesseract OCR**
+   - Açık kaynak, self-hosted çözüm
+   - Temel görüntü işleme
+   - Türkçe desteği
+
+2. **Phase 2: Cloud Integration**
+   - Google/Azure OCR servisleri
+   - Yüksek doğruluk
+   - Ölçeklenebilirlik
+
+3. **Phase 3: Optimization**
+   - Asenkron işleme
+   - Önbellekleme
+   - Monitoring
+
+### Implementation Timeline
+- Planning: Completed
+- Phase 1: Q2 2024
+- Phase 2: Q2-Q3 2024
+- Phase 3: Q3 2024
+
+### Success Metrics
+- OCR doğruluk oranı >90%
+- Sayfa başına işlem süresi <30 sn
+- Hata oranı <1% 
