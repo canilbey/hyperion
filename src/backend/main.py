@@ -32,6 +32,9 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+logging.getLogger("pdfminer").setLevel(logging.WARNING)
+logging.getLogger("python_multipart.multipart").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Enable debug logging for our services
@@ -380,28 +383,14 @@ async def delete_file(file_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Dosya bulunamadı")
         filename = row["original_filename"]
-
-        # 2. Chunk'ları sil
-        await init_service.database.execute("DELETE FROM text_chunks WHERE file_id = :file_id", {"file_id": file_id})
-        # 3. Metadata'yı sil
-        await init_service.database.execute("DELETE FROM files WHERE file_id = :file_id", {"file_id": file_id})
-        # 4. Upload klasöründen dosyayı sil
+        # 2. Tüm ilişkili verileri sil (Postgres + Milvus)
+        from backend.services.file.service import FileService
+        file_service = FileService(file_config)
+        await file_service.cleanup_file(init_service.database, file_id)
+        # 3. Upload klasöründen dosyayı sil
         file_path = os.path.join(core_config.upload_dir, file_id)
         if os.path.exists(file_path):
             os.remove(file_path)
-        # 5. Vector DB'den ilgili embedding'leri sil
-        milvus_service = MilvusService()
-        expr = f"metadata like 'file:{file_id}:%'"
-        milvus_service._connect_and_init()
-        collection = milvus_service._collection
-        # Milvus'ta metadata'ya göre silme
-        ids_to_delete = []
-        results = collection.query(expr, output_fields=["id", "metadata"])
-        for r in results:
-            if r["metadata"].startswith(f"file:{file_id}:"):
-                ids_to_delete.append(r["id"])
-        if ids_to_delete:
-            collection.delete(f"id in [{','.join(map(str, ids_to_delete))}]")
         return {"status": "deleted", "file_id": file_id, "filename": filename}
     except Exception as e:
         logger.error(f"[DELETE /files/{{file_id}}] Error: {e}")

@@ -92,6 +92,6 @@ class MilvusService:
             distance = getattr(hit, 'distance', None)
             similarity = 1 / (1 + distance) if distance is not None else 0
             self.logger.info(f"Milvus search result: distance={distance}, similarity={similarity}")
-            if similarity >= similarity_threshold:
-                filtered_results.append(hit)
+            hit.similarity = similarity  # similarity attribute'u ekle
+            filtered_results.append(hit)
         return [filtered_results] 

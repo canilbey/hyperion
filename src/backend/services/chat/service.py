@@ -12,6 +12,7 @@ from .context_storage import ContextStorageService
 from datetime import datetime
 from backend.services.rag_service import RagService
 from fastapi import HTTPException
+from backend.services.search.hybrid_search import hybrid_search
 
 class UUIDEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -26,7 +27,10 @@ class ChatService:
         model_service: ModelService,
         storage_service: ChatStorageService,
         context_storage_service: ContextStorageService,
-        redis_pool=None
+        redis_pool=None,
+        bm25_index=None,
+        milvus_client=None,
+        cross_encoder_model=None
     ):
         self.config = config
         self.model_service = model_service
@@ -38,6 +42,9 @@ class ChatService:
         
         # RAG service'i initialize ediyorum
         self.rag_service = RagService()
+        self.bm25_index = bm25_index
+        self.milvus_client = milvus_client
+        self.cross_encoder_model = cross_encoder_model
 
     def _get_context_manager(self, model_id: str) -> ContextManager:
         """Model için context manager'ı döndürür veya oluşturur"""
@@ -61,42 +68,36 @@ class ChatService:
         return self.context_managers[model_id]
 
     async def get_rag_context(self, query: str) -> Optional[str]:
-        """RAG context'i alır ve sistem prompt'u olarak formatlar"""
+        """RAG context'i alır ve sistem prompt'u olarak formatlar (hybrid search ile)"""
         try:
             self.logger.info(f"RAG context retrieval started for query: {query[:100]}...")
-            
-            # Vector search ile ilgili chunk'ları bul
-            context_chunks = await self.rag_service.retrieve_context(query, similarity_threshold=0.1)
-            
-            if context_chunks:
-                # Context'i sistem prompt'una dönüştür
+            # Hybrid search ile parent chunk'ları bul
+            if self.bm25_index is not None and self.milvus_client is not None:
+                parent_chunks = hybrid_search(
+                    query,
+                    bm25_index=self.bm25_index,
+                    milvus_client=self.milvus_client,
+                    cross_encoder_model=self.cross_encoder_model,
+                    top_k=5
+                )
+                self.logger.info("Hybrid search pipeline kullanıldı.")
+            else:
+                self.logger.warning("BM25 veya Milvus index yok, sadece semantic search pipeline kullanılacak.")
+                parent_chunks = await self.rag_service.retrieve_context(query)
+            if parent_chunks:
                 context_texts = []
-                for chunk in context_chunks:
-                    # Öncelik: chunk['text'], sonra metadata içindeki 'text' veya 'text_content'
-                    text = chunk.get("text", "")
-                    if not text:
-                        metadata = chunk.get("metadata", "")
-                        if isinstance(metadata, dict):
-                            text = metadata.get("text") or metadata.get("text_content") or ""
-                        elif isinstance(metadata, str):
-                            text = metadata
+                for chunk in parent_chunks:
+                    text = chunk.get("parent_content", "") if isinstance(chunk, dict) else chunk.get("content", "")
                     if text:
                         context_texts.append(text)
-                
                 if context_texts:
                     context_text = "\n".join(context_texts)
                     rag_prompt = f"""Aşağıdaki bilgileri kullanarak kullanıcının sorusunu yanıtla. Bu bilgiler kullanıcının daha önce yüklediği belgelerden geliyor:
-
-{context_text}
-
-Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla."""
-                    
-                    self.logger.info(f"RAG context retrieved: {len(context_chunks)} chunks, {len(context_text)} chars")
+\n{context_text}\n\nEğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla."""
+                    self.logger.info(f"RAG context retrieved: {len(parent_chunks)} parent chunks, {len(context_text)} chars")
                     return rag_prompt
-            
             self.logger.info("No relevant RAG context found")
             return None
-            
         except Exception as e:
             self.logger.error(f"RAG context retrieval failed: {e}", exc_info=True)
             return None
@@ -338,11 +339,16 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
         return total
 
     def _truncate_messages_to_token_limit(self, messages: List[dict], token_limit: int) -> List[dict]:
-        """Token limiti aşılırsa en eski mesajdan başlayarak mesajları çıkarır."""
+        """Token limiti aşılırsa en eski mesajdan başlayarak mesajları çıkarır. İlk system mesajı asla silinmez."""
         truncated = list(messages)
+        # Eğer ilk mesaj system ise, onu koru
+        system_msg = None
+        if truncated and truncated[0].get('role') == 'system':
+            system_msg = truncated.pop(0)
         while self._estimate_token_count(truncated) > token_limit and len(truncated) > 1:
-            # En baştaki mesajı sil (genellikle en eski user/assistant)
             truncated.pop(0)
+        if system_msg:
+            truncated = [system_msg] + truncated
         return truncated
 
     async def call_model_api(self, session, messages, custom_system_prompt=None):
@@ -365,7 +371,7 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
                 user_message = msg
                 break
         
-        messages_with_rag = []
+        messages_with_rag = list(messages)
         if user_message:
             query = user_message.content if hasattr(user_message, 'content') else user_message.get('content', '')
             rag_context = await self.get_rag_context(query)
@@ -375,8 +381,7 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
                     "role": "system",
                     "content": rag_context
                 }
-                messages_with_rag.append(rag_system_message)
-        messages_with_rag.extend(messages)
+                messages_with_rag = [rag_system_message] + messages_with_rag  # Kesinlikle başa ekle
         
         # Custom system prompt'u da ekle (varsa)
         if custom_system_prompt:
@@ -390,6 +395,7 @@ Eğer yukarıdaki bilgiler soruyla ilgili değilse, genel bilgin ile yanıtla.""
         token_limit = model_config.get("token_limit") or model_config.get("max_tokens") or 4000
         messages_dict = self._truncate_messages_to_token_limit(messages_dict, token_limit)
         
+        self.logger.debug(f"OpenRouter API FINAL request data: {messages_dict}")
         if model_config["provider"] == "openrouter":
             return await self._call_openrouter_api(messages_dict, model, api_key)
         raise NotImplementedError(f"Provider {model_config['provider']} not implemented.")

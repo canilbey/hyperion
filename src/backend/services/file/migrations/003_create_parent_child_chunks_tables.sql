@@ -1,7 +1,7 @@
 -- ParentChunk tablosu
 CREATE TABLE IF NOT EXISTS parent_chunks (
     id SERIAL PRIMARY KEY,
-    document_id UUID NOT NULL,
+    document_id UUID NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,
     title VARCHAR(255),
     content TEXT NOT NULL,
     "order" INTEGER,

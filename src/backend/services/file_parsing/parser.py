@@ -3,7 +3,6 @@ import logging
 import os
 import re
 import unicodedata
-from unstructured.partition.auto import partition
 
 class FileParsingService:
     def __init__(self):
@@ -39,26 +38,26 @@ class FileParsingService:
     def parse(self, file_path: str) -> List[Any]:
         self.logger.info(f"Parsing file: {file_path}")
         try:
-            elements = partition(
-                filename=file_path,
-                strategy="hi_res",
-                infer_table_structure=True,
-                extract_images_in_pdf=False,
-                chunking_strategy="by_title",
-                max_characters=4000,
-                combine_text_under_n_chars=2000,
-            )
-            cleaned_elements = []
-            for el in elements:
-                if hasattr(el, 'text') and el.text and el.text.strip():
-                    cleaned_text = self.safe_utf8(self.clean_text(el.text))
-                    if cleaned_text.strip():
-                        el.text = cleaned_text
-                        cleaned_elements.append(el)
-            self.logger.info(f"Successfully parsed {len(cleaned_elements)} elements from {os.path.basename(file_path)}")
-            return cleaned_elements
+            if self.detect_file_type(file_path) == 'pdf':
+                # Custom PDF parsing
+                from backend.services.file.pdf_adapter import extract_pdf_document
+                parent_chunks, child_chunks = extract_pdf_document(file_path)
+                # Parent ve child chunk'ları birleştirip döndür
+                results = []
+                for parent in parent_chunks:
+                    results.append({"type": "parent", **parent})
+                for child in child_chunks:
+                    results.append({"type": "child", **child})
+                self.logger.info(f"Successfully parsed {len(results)} chunks from {os.path.basename(file_path)}")
+                return results
+            else:
+                # Text dosyaları için
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                content = self.safe_utf8(self.clean_text(content))
+                return [{'text': content, 'type': 'text'}]
         except Exception as e:
-            self.logger.error(f"Unstructured parsing failed for {file_path}: {str(e)}")
+            self.logger.error(f"Custom parsing failed for {file_path}: {str(e)}")
             # Fallback: PyPDF2 for PDF
             if self.detect_file_type(file_path) == 'pdf':
                 try:
